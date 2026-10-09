@@ -1,0 +1,254 @@
+{
+  "/Users/jelle/Documents/DICTU/repos/chatbot/generating/indexing_runner.py": {
+    "mtime": 1778593042.1311567,
+    "hash": "710138c9aa67872e5469a6d01a51bf2c"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/generating/__init__.py": {
+    "mtime": 1776024194.177639,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/generating/query_expander.py": {
+    "mtime": 1778576335.6378393,
+    "hash": "df40b19d5083cc977be8e3308321e690"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/generating/generator.py": {
+    "mtime": 1776250912.185137,
+    "hash": "36e76f31f12e55772a38ff2a914193f3"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/generating/app.py": {
+    "mtime": 1784120270.0432696,
+    "hash": "8e6bfe67a239c65e80bf68eb1da4d9dc"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/postcss.config.mjs": {
+    "mtime": 1776250345.7409153,
+    "hash": "239f3ebf717465dc636818a1a619398d"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/next-env.d.ts": {
+    "mtime": 1778576335.6366072,
+    "hash": "2a74d3909800ca5467fa83b0ab4a4890"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/eslint.config.mjs": {
+    "mtime": 1776250345.7401633,
+    "hash": "dfa1f5f6a7037bf39dc510f30b180002"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/next.config.ts": {
+    "mtime": 1778578141.4583223,
+    "hash": "24b5dd234ad38eb42778bed0765a8aec"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/layout.tsx": {
+    "mtime": 1776250345.7421193,
+    "hash": "268b5ec2a6e16fff3e7b842c96d23de8"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/page.tsx": {
+    "mtime": 1778576335.6368604,
+    "hash": "a871ce16bc2703d7a0d1aafdc92bb9e1"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/api/open-pdf/route.ts": {
+    "mtime": 1776250345.7417223,
+    "hash": "bbfa3585ca933ce0af06e998af7939c2"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/api/chat/route.ts": {
+    "mtime": 1776360333.8751128,
+    "hash": "d5111c7fe6f7d42e3d7461402b65fa7d"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/api/health/route.ts": {
+    "mtime": 1778576589.3807485,
+    "hash": "dc55a7e5f625fa18a3be51b722073ba6"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/api/reset/route.ts": {
+    "mtime": 1776250345.7418225,
+    "hash": "c264975f7c9d7b1aed9bde71ed45dd6f"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/api/index/route.ts": {
+    "mtime": 1781862254.6162176,
+    "hash": "8727ec9e665484985e81f81549fcbca6"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/api/index/status/route.ts": {
+    "mtime": 1778575746.813698,
+    "hash": "da25ae254b79a04b7b787bc0c804aff3"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/theme-provider.tsx": {
+    "mtime": 1776250345.7425861,
+    "hash": "b4a44a924e262493b017902d777d194b"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/QueryExpansionBadge.tsx": {
+    "mtime": 1778576335.6369696,
+    "hash": "43b800d980c9de01954e76f171b32d5a"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/SourcePanel.tsx": {
+    "mtime": 1778576335.637331,
+    "hash": "fc45360b0abd97aa40382ca39af370be"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/QueryExpansionBubble.tsx": {
+    "mtime": 1778576335.6370718,
+    "hash": "a6704e67fd66d9a72b68e60921a714b8"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/FormattedMessage.tsx": {
+    "mtime": 1776250345.7423644,
+    "hash": "dbf9cc050a95ad621f6318838d6fa4d3"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/SettingsPanel.tsx": {
+    "mtime": 1778585945.564918,
+    "hash": "b1ab6869418bcdc05843354ce44206a4"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/card.tsx": {
+    "mtime": 1776250345.742784,
+    "hash": "77a10bd948ca424972a28e704a3df604"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/scroll-area.tsx": {
+    "mtime": 1776250345.7430642,
+    "hash": "5a04c269a377e8176ebbf27ee8ac35bf"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/label.tsx": {
+    "mtime": 1776250345.7429972,
+    "hash": "1c5f82e81853356533e12ed25d3af50b"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/dialog.tsx": {
+    "mtime": 1776250345.7428584,
+    "hash": "e01132db6e9067b7b8cc2e322fdd34ff"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/button.tsx": {
+    "mtime": 1776250345.7427037,
+    "hash": "daafd007acc8e344a1c557ae9287fe14"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/select.tsx": {
+    "mtime": 1776250345.743149,
+    "hash": "782cff9ae83087dcc7f5ca090328ca78"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/textarea.tsx": {
+    "mtime": 1776250345.7432146,
+    "hash": "d448d2a90e48542e51b93a1189127bf2"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/components/ui/input.tsx": {
+    "mtime": 1776250345.7429266,
+    "hash": "2b0e9e810580f227dd255d9b78a83835"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/lib/utils.ts": {
+    "mtime": 1776250345.7433445,
+    "hash": "5a6fd53fdcf2be529e9cc0b718fde352"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/tests/conftest.py": {
+    "mtime": 1776066154.2413387,
+    "hash": "d6c3780c9130fdd8e01d0aa6bf004302"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/tests/__init__.py": {
+    "mtime": 1775814625.1344326,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/tests/test_rag_eval.py": {
+    "mtime": 1776233377.464247,
+    "hash": "71588110fdf13a9d0de23f79ed5d15cf"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/gitlab_repo_fetcher.py": {
+    "mtime": 1781850486.3776884,
+    "hash": "992839871ca70b72400424849f2d08ee"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/console.py": {
+    "mtime": 1778576335.6381924,
+    "hash": "6a545b556a5a4861fbc38e1f29986efd"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/version_stamp.py": {
+    "mtime": 1784115974.1727848,
+    "hash": "907f40f2d9e15f285189e32e61b46b73"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/change_detection.py": {
+    "mtime": 1784114614.0428307,
+    "hash": "6414eb37c75766df1d675b9bb77767bb"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/__init__.py": {
+    "mtime": 1778576335.638062,
+    "hash": "fe7d7b41424f5e1f735a857eddd73e2a"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/cleanup.py": {
+    "mtime": 1784116013.4480314,
+    "hash": "747a800fa809af704c9a20c92f1c0a3c"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/indexer.py": {
+    "mtime": 1784117242.4197707,
+    "hash": "879abf4235a3c76b3253a9deb4534e39"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/lock.py": {
+    "mtime": 1784115996.5668635,
+    "hash": "5e8289876662a2938447738090bf7370"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/gitlab_wiki_fetcher.py": {
+    "mtime": 1781850490.776754,
+    "hash": "c92e69d184062224ba92cc990ac460ce"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/document_parser.py": {
+    "mtime": 1778576335.638247,
+    "hash": "614e27dadb8d2ed5ac1cb4721e0539ea"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/requirements.txt": {
+    "mtime": 1778576335.6387084,
+    "hash": "e31677cbf4856189b7ac9289da7b23bc"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/README.md": {
+    "mtime": 1778593854.5201035,
+    "hash": "a8118b2ad80eb215b10d418b4108f405"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/PORTAINER.md": {
+    "mtime": 1778575963.3443146,
+    "hash": "7706a7c72db99ed803ac2ef810a11a62"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/docker-compose.yml": {
+    "mtime": 1781850478.1414332,
+    "hash": "4103ee96b4d50dd61f0290d91ed6313f"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/VM.md": {
+    "mtime": 1784115974.1918461,
+    "hash": "c3c58ef0d0ad0fd22267c46cd92812c5"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/CLAUDE.md": {
+    "mtime": 1784116453.1899009,
+    "hash": "09ab6132201e66bc0cb529121a924a7e"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/generating/README.md": {
+    "mtime": 1778597369.6827774,
+    "hash": "c36cac13f9e66c8ce47b0d57cc9d16f7"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/tasks/indexing-api-en-ui.md": {
+    "mtime": 1778576335.6388462,
+    "hash": "d1ea45ad248e44c5a16bcbfdea34403e"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/README.md": {
+    "mtime": 1778597454.2418377,
+    "hash": "5629e4b55ffe232278c0074de136d0fa"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/tests/README.md": {
+    "mtime": 1776250912.1856053,
+    "hash": "0fb146bd260ccf80e5efb6c12a92261c"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/indexing/README.md": {
+    "mtime": 1784116356.2966435,
+    "hash": "44a617914d4ab29cd25769870c893268"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/vector-db/README.md": {
+    "mtime": 1784116407.5453262,
+    "hash": "aa18c919731de32d65659e4b0cc0c413"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/public/file.svg": {
+    "mtime": 1776250345.7410173,
+    "hash": "d09f95206c3fa0bb9bd9fefabfd0ea71"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/public/vercel.svg": {
+    "mtime": 1776250345.7412333,
+    "hash": "c0af2f507b369b085b35ef4bbe3bcf1e"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/public/next.svg": {
+    "mtime": 1776250345.7411406,
+    "hash": "8e061864f388b47f33a1c3780831193e"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/public/globe.svg": {
+    "mtime": 1776250345.7410784,
+    "hash": "2aaafa6a49b6563925fe440891e32717"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/public/window.svg": {
+    "mtime": 1776250345.7413347,
+    "hash": "a2760511c65806022ad20adf74370ff3"
+  },
+  "/Users/jelle/Documents/DICTU/repos/chatbot/chat-app/src/app/icon.svg": {
+    "mtime": 1778577513.8439898,
+    "hash": "84e9a3e6c6d26f794c10d01812b63e52"
+  }
+}

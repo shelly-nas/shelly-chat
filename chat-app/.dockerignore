@@ -1,0 +1,22 @@
+# Secrets — never bake credentials into images
+.env
+*.env
+
+# Git
+.git/
+.gitignore
+
+# Editor / OS
+.DS_Store
+.vscode/
+
+# Docs & config not needed at runtime
+README.md
+Dockerfile
+.dockerignore
+
+# Dependencies — reinstalled inside the image via npm ci
+node_modules
+
+# Build output — regenerated inside the image via npm run build
+.next

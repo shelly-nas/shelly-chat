@@ -1,0 +1,27 @@
+[
+  {
+    "collection": "mlk_collection",
+    "question": "Welke garanties zijn van toepassing op de opgeleverde woning?",
+    "ground_truth": ""
+  },
+  {
+    "collection": "mlk_collection",
+    "question": "Hoe verloopt de procedure voor meer- en minderwerk?",
+    "ground_truth": ""
+  },
+  {
+    "collection": "mlk_collection",
+    "question": "Wat zijn de verplichtingen van de koper bij de notariële levering?",
+    "ground_truth": ""
+  },
+  {
+    "collection": "newspark_collection",
+    "question": "Hoeveel vakantiedagen heeft een medewerker per jaar bij Newspark?",
+    "ground_truth": ""
+  },
+  {
+    "collection": "newspark_collection",
+    "question": "Wat zijn de regels rondom overwerk bij Newspark?",
+    "ground_truth": ""
+  }
+]
