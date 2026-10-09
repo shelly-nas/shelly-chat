@@ -1,0 +1,7 @@
+# Tools that run on the machine with Ollama (not on the NAS): the indexer and
+# the evaluation. Python 3.12.
+llama-index-core>=0.12,<0.15
+python-docx>=1.1,<2.0
+pdfminer.six>=20221105
+requests>=2.31,<3.0
+python-dotenv>=1.0,<2.0

@@ -1,0 +1,97 @@
+name: Deploy to Acceptance
+
+# Every pull request to main is built and deployed to
+# chat-acc.shelly-nas.nl, so the change can be reviewed in the running app
+# before it is merged. There is one acc environment: the last pull request
+# pushed is the one on it. "Run workflow" redeploys any branch by hand.
+#
+# Acc gets a fresh database on every deploy - schema, seed and
+# database/seed-demo.sql - and never production data. Nothing here releases
+# or touches production; that stays with deploy.yml and the release PR.
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push supersedes a deploy in progress; acc only ever shows one branch.
+concurrency:
+  group: acc-deploy
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Decide whether to deploy
+    runs-on: ubuntu-latest
+    # Release PRs only bump versions and the changelog; nothing to review on acc.
+    # Pull requests from forks never reach the self-hosted runner.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!startsWith(github.head_ref, 'release-please--') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        run: echo "tag=acc-${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+  build-server:
+    name: Build and Push Server
+    needs: prepare
+    uses: shelly-nas/shared-workflows/.github/workflows/build-push-image.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      image_tag: ${{ vars.REGISTRY_URL }}/shelly-chat-server:${{ needs.prepare.outputs.tag }}
+      context: ./server
+    secrets:
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+
+  build-client:
+    name: Build and Push Client
+    needs: prepare
+    uses: shelly-nas/shared-workflows/.github/workflows/build-push-image.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      image_tag: ${{ vars.REGISTRY_URL }}/shelly-chat-client:${{ needs.prepare.outputs.tag }}
+      context: ./client
+    secrets:
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+
+  build-db:
+    name: Build and Push Database
+    needs: prepare
+    uses: shelly-nas/shared-workflows/.github/workflows/build-push-image.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      image_tag: ${{ vars.REGISTRY_URL }}/shelly-chat-db:${{ needs.prepare.outputs.tag }}
+      context: ./database
+    secrets:
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+
+  deploy-acc:
+    name: Deploy to Acceptance
+    needs: [prepare, build-server, build-client, build-db]
+    uses: shelly-nas/shared-workflows/.github/workflows/deploy-acceptance.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      deploy_directory: /volume1/docker/shelly-chat-acc
+      compose_file: docker-compose.acc.yml
+      image_tag: ${{ needs.prepare.outputs.tag }}
+      demo_seed_file: database/seed-demo.sql
+    secrets:
+      registry_username: ${{ vars.REGISTRY_USERNAME }}
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+      env_file_content: |
+        DB_NAME=${{ vars.DB_NAME }}
+        DB_USER=${{ vars.DB_USER }}
+        DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+        TZ=${{ vars.TZ || 'Europe/Amsterdam' }}
+        INDEX_TOKEN=${{ secrets.INDEX_TOKEN }}
+        LLM_MODEL_NAME=${{ vars.LLM_MODEL_NAME }}
+        LLM_SYSTEM_PROMPT=${{ vars.LLM_SYSTEM_PROMPT }}
+        NO_ANSWER_RESPONSE=${{ vars.NO_ANSWER_RESPONSE }}

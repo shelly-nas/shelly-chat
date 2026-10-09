@@ -1,0 +1,133 @@
+name: CI
+
+# Runs on every change: each push to any branch and every pull request, so a
+# problem surfaces before it reaches main rather than at deploy time.
+#
+# Standalone variant for a Python backend (there is no shared workflow for it
+# yet). The database service is the official pgvector image: the schema needs
+# the vector extension, which postgres:16-alpine lacks. Keep its version in
+# step with PGVECTOR_VERSION in database/Dockerfile.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch supersedes the run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    name: Client typecheck and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+        working-directory: client
+      - run: npx tsc --noEmit
+        working-directory: client
+      - run: npm test
+        working-directory: client
+
+  server-tests:
+    name: Schema and server tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_USER: chat
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: chat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chat -d chat"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: chat
+      DB_PASSWORD: ci-password
+      DB_NAME: chat
+      DATABASE_URL: postgresql://chat:ci-password@localhost:5432/chat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+      - run: pip install -r requirements.txt
+        working-directory: server
+
+      # Numbers must be unique. Two branches each adding 001_ merge cleanly in
+      # git and then collide in production, where one is recorded as applied and
+      # the other silently never runs.
+      - name: Check for duplicate migration numbers
+        run: |
+          shopt -s nullglob
+          files=(server/migrations/[0-9][0-9][0-9]_*.sql)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No migrations yet - the schema comes from database/init.sql."
+            exit 0
+          fi
+          duplicates=$(printf '%s\n' "${files[@]}" \
+            | xargs -n1 basename | cut -d_ -f1 | sort | uniq -d)
+          if [ -n "$duplicates" ]; then
+            echo "Duplicate migration number(s): $duplicates"
+            exit 1
+          fi
+          echo "Migration numbering is unique."
+
+      # The schema an install actually gets: init.sql and the seed, exactly as
+      # the postgres entrypoint runs them.
+      - name: Apply the schema to a fresh database
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/init.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seed.sql
+
+      # Re-running the seed must not fail, so a redeploy cannot break on it.
+      - name: Re-run the seed (must be idempotent)
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seed.sql
+
+      # The demo seed runs on every acc deploy; it has to apply cleanly too.
+      - name: Apply the demo seed twice
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seed-demo.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seed-demo.sql
+
+      # Applied twice: the second run must be a no-op.
+      - name: Apply pending migrations twice
+        working-directory: server
+        run: |
+          for run in 1 2; do
+            python -c "from app.migrations import run_migrations; print(run_migrations())"
+          done
+
+      - name: Server tests
+        working-directory: server
+        run: pytest
+
+  host-tests:
+    name: Indexer unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: host/requirements.txt
+      - run: pip install -r requirements.txt pytest
+        working-directory: host
+      - run: pytest tests/unit
+        working-directory: host

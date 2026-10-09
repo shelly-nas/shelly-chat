@@ -1,0 +1,11 @@
+# The server runs on the NAS and does no AI work: no LLM, no embedding model,
+# no torch. Everything model-related happens on the machine that runs Ollama.
+fastapi==0.143.0
+uvicorn==0.54.0
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3
+pydantic==2.14.0
+
+# Tests (TestClient needs httpx)
+pytest==9.1.1
+httpx==0.28.1

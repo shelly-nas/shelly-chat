@@ -1,0 +1,109 @@
+# Acceptance stack: chat-acc.shelly-nas.nl.
+#
+# Deployed by .github/workflows/acc.yml for every pull request, next to
+# production but separate from it: its own directory (/volume1/docker/
+# shelly-chat-acc), container names, Traefik routers and database. The last pull
+# request deployed wins.
+#
+# The images are the same ones production would get, tagged acc-<commit>.
+# The database is rebuilt on every deploy: an empty data directory runs
+# init.sql and seed.sql from the image, then the workflow loads
+# database/seed-demo.sql. No production data reaches acc.
+#
+# Keep this file in step with docker-compose.prod.yml; the only differences
+# should be names, host and this header.
+services:
+  db:
+    # Eigen image: het schema zit erin gebakken, omdat de deploy alleen dit
+    # compose-bestand naar de host kopieert en een bind mount naar
+    # ./database/ daar niet bestaat.
+    image: ${REGISTRY}/shelly-chat-db:${IMAGE_TAG:?IMAGE_TAG is verplicht}
+    container_name: shelly-chat-acc-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-chat}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is verplicht}
+      POSTGRES_DB: ${DB_NAME:-chat}
+      TZ: ${TZ:-Europe/Amsterdam}
+    volumes:
+      # Bind mount: de data leeft op de host onder ./data/postgres en overleeft
+      # daarmee ook `docker compose down -v`, dat named volumes wist.
+      # Het pad moet op de host bestaan en eigendom zijn van uid/gid 70
+      # (de postgres-user in het alpine-image), anders weigert Postgres te starten.
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${DB_USER:-chat} -d ${DB_NAME:-chat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  server:
+    image: ${REGISTRY}/shelly-chat-server:${IMAGE_TAG:?IMAGE_TAG is verplicht}
+    container_name: shelly-chat-acc-server
+    restart: always
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-chat}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-chat}
+      SERVER_PORT: 3000
+      TZ: ${TZ:-Europe/Amsterdam}
+      # The indexer on the Ollama machine authenticates with this token.
+      INDEX_TOKEN: ${INDEX_TOKEN:?INDEX_TOKEN is verplicht}
+      # Defaults the browser uses when it talks to Ollama.
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemma4:latest}
+      LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-You are a helpful assistant.}
+      NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-I could not find this in the provided sources.}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3000/api/health', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - shelly-network
+      - default
+    labels:
+      - "traefik.enable=true"
+      # Two networks: tell Traefik which one it can reach, or it may pick
+      # the stack's default network and answer 504 Gateway Timeout.
+      - "traefik.docker.network=shelly-network"
+      - "traefik.http.routers.chat-acc-api.rule=Host(`chat-acc.shelly-nas.nl`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.chat-acc-api.entrypoints=web"
+      - "traefik.http.services.chat-acc-api.loadbalancer.server.port=3000"
+
+  client:
+    image: ${REGISTRY}/shelly-chat-client:${IMAGE_TAG:?IMAGE_TAG is verplicht}
+    container_name: shelly-chat-acc-client
+    restart: always
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+    depends_on:
+      - server
+    networks:
+      - shelly-network
+      - default
+    labels:
+      - "traefik.enable=true"
+      # Two networks: tell Traefik which one it can reach, or it may pick
+      # the stack's default network and answer 504 Gateway Timeout.
+      - "traefik.docker.network=shelly-network"
+      - "traefik.http.routers.chat-acc.rule=Host(`chat-acc.shelly-nas.nl`)"
+      - "traefik.http.routers.chat-acc.entrypoints=web"
+      - "traefik.http.services.chat-acc.loadbalancer.server.port=80"
+
+networks:
+  shelly-network:
+    external: true

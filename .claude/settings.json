@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "shelly-nas": {
+      "source": {
+        "source": "github",
+        "repo": "shelly-nas/shelly-fundamentals"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "shelly-fundamentals@shelly-nas": true
+  }
+}

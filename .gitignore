@@ -1,0 +1,26 @@
+# Local credentials
+.env
+
+# Dependencies and build output
+node_modules
+dist
+dist-ssr
+*.local
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Local database data (production uses ./data/postgres on the NAS)
+data/
+
+# Editor and OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
