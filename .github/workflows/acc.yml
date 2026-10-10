@@ -37,6 +37,29 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
+      # The deploy writes these into the .env on the NAS, and the compose file
+      # refuses to start without them. An empty one otherwise surfaces only as
+      # an unexplained failure of `docker compose pull` on the runner.
+      - name: Check deploy settings
+        env:
+          REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+          REGISTRY_USERNAME: ${{ vars.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          INDEX_TOKEN: ${{ secrets.INDEX_TOKEN }}
+        run: |
+          missing=0
+          for name in REGISTRY_URL REGISTRY_USERNAME REGISTRY_PASSWORD DB_PASSWORD INDEX_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty - set it under Settings > Secrets and variables > Actions (repository level)."
+              missing=1
+            fi
+          done
+          # docker compose interpolates the .env: a '$' in a value breaks it.
+          for name in DB_PASSWORD INDEX_TOKEN; do
+            case "${!name}" in *'$'*) echo "::error::$name contains a '\$', which docker compose would interpolate."; missing=1 ;; esac
+          done
+          exit $missing
       - id: tag
         run: echo "tag=acc-${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_OUTPUT"
 
