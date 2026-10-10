@@ -28,6 +28,13 @@ DB_NAME = os.getenv("DB_NAME", "chat")
 # and acc compose files refuse to start without it.
 INDEX_TOKEN = os.getenv("INDEX_TOKEN", "")
 
+# Chunking. A change resets the index on the next indexing run: chunks of
+# two sizes do not mix. CHILD_CHUNK_SIZE defaults to a quarter of the parent,
+# the ratio LlamaIndex's auto-merging is designed for.
+PARENT_CHUNK_SIZE = _int("PARENT_CHUNK_SIZE", 1500)
+CHILD_CHUNK_SIZE = _int("CHILD_CHUNK_SIZE", PARENT_CHUNK_SIZE // 4)
+PARENT_CHUNK_OVERLAP = _int("PARENT_CHUNK_OVERLAP", 300)
+
 # Retrieval
 RETRIEVAL_TOP_K = _int("RETRIEVAL_TOP_K", 20)
 CONTEXT_TOP_N = _int("CONTEXT_TOP_N", 5)

@@ -8,6 +8,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import MenuIcon from "@mui/icons-material/Menu";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import SourceOutlinedIcon from "@mui/icons-material/SourceOutlined";
 import {
   Alert,
   Avatar,
@@ -165,6 +166,8 @@ function ConversationList({ onNavigate }: { onNavigate: () => void }) {
 function Sidebar({ onNavigate, onOpenSettings }: { onNavigate: () => void; onOpenSettings: () => void }) {
   const navigate = useNavigate();
   const { mode, toggle } = useColorMode();
+  const onIndex = useMatch("/index") !== null;
+  const { index } = useAppState();
 
   return (
     <Box
@@ -204,6 +207,21 @@ function Sidebar({ onNavigate, onOpenSettings }: { onNavigate: () => void; onOpe
         </Box>
       </Box>
       <Stack spacing={1}>
+        <ListItemButton
+          selected={onIndex}
+          onClick={() => {
+            navigate("/index");
+            onNavigate();
+          }}
+        >
+          <SourceOutlinedIcon fontSize="small" aria-hidden />
+          <ListItemText primary="Index" primaryTypographyProps={{ fontSize: 14, fontWeight: "inherit", color: "inherit" }} />
+          {index && (
+            <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {index.documents}
+            </Typography>
+          )}
+        </ListItemButton>
         <OllamaStatus onClick={onOpenSettings} />
         <Stack direction="row" alignItems="center" spacing={1}>
           <Button

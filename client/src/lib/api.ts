@@ -5,7 +5,10 @@ import type {
   Conversation,
   ConversationSummary,
   ExpansionSource,
+  IndexSettings,
+  IndexSource,
   IndexStatus,
+  PrepareResult,
   ServerConfig,
   SourceContext,
 } from "./types";
@@ -36,6 +39,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
+
+const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 export const api = {
   health: () => request<{ status: string; version: string }>("/api/health"),
@@ -78,4 +83,47 @@ export const api = {
     }),
   deleteConversation: (id: string) =>
     request<void>(`/api/conversations/${id}`, { method: "DELETE" }),
+
+  // Index. Everything that changes it needs the NAS's INDEX_TOKEN.
+  indexSettings: () => request<IndexSettings>("/api/index/settings"),
+  checkIndexToken: (token: string) =>
+    request<{ ok: boolean }>("/api/index/auth", { headers: bearer(token) }),
+  addSource: (token: string, url: string) =>
+    request<IndexSource>("/api/index/sources", {
+      method: "POST",
+      headers: bearer(token),
+      body: JSON.stringify({ url }),
+    }),
+  deleteSource: (token: string, id: number) =>
+    request<void>(`/api/index/sources/${id}`, { method: "DELETE", headers: bearer(token) }),
+  putIndexMeta: (token: string, meta: { embed_model: string; embed_dimensions: number; reset: boolean }) =>
+    request<unknown>("/api/index/meta", { method: "PUT", headers: bearer(token), body: JSON.stringify(meta) }),
+  indexedDocuments: (token: string) =>
+    request<{ documents: { file_path: string; content_hash: string }[] }>("/api/index/documents", {
+      headers: bearer(token),
+    }).then((r) => r.documents),
+  prepareDocument: (token: string, body: object, signal?: AbortSignal) =>
+    request<PrepareResult>("/api/index/prepare", {
+      method: "POST",
+      headers: bearer(token),
+      body: JSON.stringify(body),
+      signal,
+    }),
+  putDocument: (token: string, document: object, signal?: AbortSignal) =>
+    request<{ chunks: number; abbreviations: number }>("/api/index/documents", {
+      method: "PUT",
+      headers: bearer(token),
+      body: JSON.stringify(document),
+      signal,
+    }),
+  deleteDocument: (token: string, filePath: string) =>
+    request<void>(`/api/index/documents?file_path=${encodeURIComponent(filePath)}`, {
+      method: "DELETE",
+      headers: bearer(token),
+    }),
+  rebuildAbbreviations: (token: string) =>
+    request<{ documents: number; abbreviations: number }>("/api/index/abbreviations", {
+      method: "POST",
+      headers: bearer(token),
+    }),
 };

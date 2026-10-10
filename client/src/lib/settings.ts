@@ -9,6 +9,12 @@ export interface Settings {
   /** Unload each model right after use, so embedder and LLM never compete for memory. */
   unloadModels: boolean;
   expandQuery: boolean;
+  /** Personal GitLab token (read_api), for indexing from this browser. */
+  gitlabToken: string;
+  /** INDEX_TOKEN of the NAS, needed to change the index. */
+  indexToken: string;
+  /** Embedding model for indexing; empty: the index's current one. */
+  embedModel: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -16,6 +22,9 @@ export const DEFAULT_SETTINGS: Settings = {
   llmModel: "",
   unloadModels: true,
   expandQuery: true,
+  gitlabToken: "",
+  indexToken: "",
+  embedModel: "",
 };
 
 const KEY = "shelly-chat.settings";

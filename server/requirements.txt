@@ -1,10 +1,15 @@
 # The server runs on the NAS and does no AI work: no LLM, no embedding model,
 # no torch. Everything model-related happens on the machine that runs Ollama.
+# llama-index-core is here only for its text splitter (HierarchicalNodeParser),
+# so documents indexed from the app and from the CLI get identical chunks.
 fastapi==0.143.0
 uvicorn==0.54.0
 psycopg[binary]==3.3.6
 psycopg-pool==3.3.3
 pydantic==2.14.0
+llama-index-core==0.14.25
+pdfminer.six==20260107
+python-docx==1.2.0
 
 # Tests (TestClient needs httpx)
 pytest==9.1.1

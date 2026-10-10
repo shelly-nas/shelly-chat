@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS index_meta (
     updated_at           timestamptz NOT NULL DEFAULT now()
 );
 
+-- The GitLab wikis and repositories to index, shared by everyone who indexes
+-- from the app. GitLab tokens are never stored here: each user keeps their
+-- own in the browser.
+CREATE TABLE IF NOT EXISTS index_sources (
+    id         bigserial   PRIMARY KEY,
+    url        text        NOT NULL UNIQUE,
+    kind       text        NOT NULL CHECK (kind IN ('wiki', 'repo')),
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- One row per source document (GitLab wiki page or repository file).
 -- content_hash drives incremental indexing: an unchanged hash is skipped.
 CREATE TABLE IF NOT EXISTS documents (

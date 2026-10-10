@@ -78,6 +78,35 @@ export async function embed(
   return (await res.json()).embeddings[0];
 }
 
+export async function embedMany(
+  ollamaUrl: string,
+  model: string,
+  inputs: string[],
+  opts: { batchSize?: number; signal?: AbortSignal } = {},
+): Promise<number[][]> {
+  const size = opts.batchSize ?? 16;
+  const vectors: number[][] = [];
+  for (let i = 0; i < inputs.length; i += size) {
+    const res = await call(`${base(ollamaUrl)}/api/embed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, input: inputs.slice(i, i + size) }),
+      signal: opts.signal,
+    });
+    vectors.push(...(await res.json()).embeddings);
+  }
+  return vectors;
+}
+
+/** Free a model's memory now instead of after Ollama's keep-alive. */
+export async function unload(ollamaUrl: string, model: string): Promise<void> {
+  await call(`${base(ollamaUrl)}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, prompt: "", keep_alive: 0 }),
+  });
+}
+
 /** Ollama streams newline-delimited JSON; yield each complete object. */
 export async function* readNdjson(body: ReadableStream<Uint8Array>): AsyncGenerator<any> {
   const reader = body.getReader();

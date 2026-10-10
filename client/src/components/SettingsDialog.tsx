@@ -206,7 +206,7 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
 
         <Section
           title="Index op de NAS"
-          subtitle="Wordt gevuld door de indexer op een computer met Ollama (zie host/README.md)."
+          subtitle="Bronnen en indexeren staan op het scherm Index in de zijbalk."
         >
           {index === null ? (
             <Typography variant="body2">Laden…</Typography>

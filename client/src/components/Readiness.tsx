@@ -32,7 +32,7 @@ export function useChecks(): Check[] | null {
     {
       ok: (index?.documents ?? 0) > 0,
       label: (index?.documents ?? 0) > 0 ? `${index!.documents} documenten geïndexeerd` : "Er is nog niets geïndexeerd",
-      hint: "Draai de indexer op een computer met Ollama; zie host/README.md in de repository.",
+      hint: "Open Index in de zijbalk om documenten uit GitLab te indexeren.",
     },
   ];
   if (ollama.status === "ok" && config?.embed_model) {

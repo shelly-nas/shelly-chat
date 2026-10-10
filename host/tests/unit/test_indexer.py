@@ -1,51 +1,99 @@
-"""The indexer's document payload and change detection, without Ollama or a NAS."""
+"""The CLI indexer against fakes of the NAS and Ollama."""
 
-from llama_index.core import Document
+from indexing.indexer import IndexingConfig, reset_reason, run_pipeline
+from indexing.source_document import Document
 
-from indexing.change_detection import classify_documents, compute_hash
-from indexing.indexer import IndexingConfig, document_payload
+CHUNKS = {"parent_chunk_size": 1500, "child_chunk_size": 375, "parent_chunk_overlap": 300}
+
+
+class FakeNas:
+    def __init__(self, meta=None, indexed=None):
+        self.meta = meta
+        self.indexed = indexed or {}
+        self.calls = []
+
+    def settings(self):
+        return {"meta": self.meta, "chunk_config": CHUNKS,
+                "sources": [{"url": "https://g/team/x/-/wikis", "kind": "wiki"}]}
+
+    def put_meta(self, meta, reset):
+        self.calls.append(("meta", meta["embed_model"], reset))
+
+    def indexed_hashes(self):
+        return self.indexed
+
+    def prepare_document(self, body):
+        if body["text"] == "same":
+            return {"status": "unchanged"}
+        nodes = [
+            {"id": "p", "parent_id": None, "is_leaf": False, "embed_text": None},
+            {"id": "c", "parent_id": "p", "is_leaf": True, "embed_text": "embed me"},
+        ]
+        return {"status": "new", "document": {"file_path": body["file_path"], "nodes": nodes}}
+
+    def put_document(self, document):
+        self.calls.append(("put", document["file_path"], document["nodes"]))
+        return {"chunks": len(document["nodes"]), "abbreviations": 0}
+
+    def delete_document(self, path):
+        self.calls.append(("delete", path))
 
 
 class FakeEmbedder:
-    def __init__(self):
-        self.inputs: list[str] = []
-
     def embed(self, texts):
-        self.inputs.extend(texts)
-        return [[float(len(t)), 1.0, 0.0] for t in texts]
+        return [[1.0, 2.0, 3.0] for _ in texts]
+
+    def dimensions(self):
+        return 3
+
+    def unload(self):
+        pass
 
 
-def _doc(path: str, text: str) -> Document:
-    doc = Document(text=text, metadata={"file_path": path, "file_name": path, "source_url": path})
-    doc.metadata["content_hash"] = compute_hash(text)
-    doc.excluded_embed_metadata_keys.append("content_hash")
-    return doc
+def _run(monkeypatch, nas, docs, fetch_error=None):
+    config = IndexingConfig(gitlab_pat="pat")
+    monkeypatch.setattr(IndexingConfig, "nas", lambda self: nas)
+    monkeypatch.setattr(IndexingConfig, "embedder", lambda self: FakeEmbedder())
+
+    def fake_fetch(source, token):
+        if fetch_error:
+            raise ConnectionError(fetch_error)
+        return docs
+
+    monkeypatch.setattr("indexing.indexer.fetch_source", fake_fetch)
+    return run_pipeline(config)
 
 
-def test_payload_has_a_hierarchy_with_embedded_leaves():
-    text = " ".join(f"Zin nummer {i} over het onderwerp." for i in range(600))
-    config = IndexingConfig(parent_chunk_size=400, child_chunk_size=100)
-    embedder = FakeEmbedder()
-
-    payload = document_payload(_doc("wiki/a.md", text), config, embedder)
-
-    nodes = {n["id"]: n for n in payload["nodes"]}
-    leaves = [n for n in nodes.values() if n["is_leaf"]]
-    parents = [n for n in nodes.values() if not n["is_leaf"]]
-    assert parents and len(leaves) > len(parents)
-    assert all(n["embedding"] is not None for n in leaves)
-    assert all(n["embedding"] is None for n in parents)
-    assert all(nodes[n["parent_id"]]["is_leaf"] is False for n in leaves)
-    assert payload["content_hash"] == compute_hash(text)
-    # The hash is excluded from what gets embedded; the file name is not.
-    assert all("content_hash" not in t and "wiki/a.md" in t for t in embedder.inputs)
+def _doc(path, text):
+    return Document(text=text, metadata={"file_path": path, "file_name": path, "source_url": path})
 
 
-def test_classify():
-    a, b = _doc("a", "one"), _doc("b", "two")
-    indexed = {"a": compute_hash("one"), "b": "old", "gone": "x"}
-    new, changed, deleted, unchanged = classify_documents([a, b, _doc("c", "three")], indexed)
-    assert [d.metadata["file_path"] for d in new] == ["c"]
-    assert [d.metadata["file_path"] for d in changed] == ["b"]
-    assert deleted == ["gone"]
-    assert unchanged == [a]
+def test_embeds_new_skips_unchanged_and_removes_gone(monkeypatch):
+    meta = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS}
+    nas = FakeNas(meta=meta, indexed={"a": "h", "gone": "h"})
+    counts = _run(monkeypatch, nas, [_doc("a", "same"), _doc("b", "new text")])
+
+    assert counts == {"new": 1, "changed": 0, "unchanged": 1, "deleted": 1, "failed": 0}
+    assert ("meta", "qwen3-embedding:latest", False) in nas.calls
+    put = next(c for c in nas.calls if c[0] == "put")
+    assert put[1] == "b"
+    assert {n["id"]: n["embedding"] for n in put[2]} == {"p": None, "c": [1.0, 2.0, 3.0]}
+    assert all("embed_text" not in n for n in put[2])
+    assert ("delete", "gone") in nas.calls
+
+
+def test_unreachable_source_never_deletes(monkeypatch):
+    meta = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS}
+    nas = FakeNas(meta=meta, indexed={"a": "h"})
+    counts = _run(monkeypatch, nas, [], fetch_error="VPN uit")
+    assert counts["deleted"] == 0
+    assert not any(c[0] == "delete" for c in nas.calls)
+
+
+def test_reset_reason():
+    meta = {"embed_model": "m", "embed_dimensions": 3, **CHUNKS}
+    assert reset_reason(None, CHUNKS, "m", 3) is None
+    assert reset_reason(meta, CHUNKS, "m", 3) is None
+    assert "embeddingmodel" in reset_reason(meta, CHUNKS, "other", 3)
+    assert "dimensie" in reset_reason(meta, CHUNKS, "m", 4)
+    assert "parent_chunk_size" in reset_reason(meta, {**CHUNKS, "parent_chunk_size": 1}, "m", 3)

@@ -66,3 +66,47 @@ export interface IndexStatus {
   abbreviations: number;
   last_indexed_at: string | null;
 }
+
+export interface ChunkConfig {
+  parent_chunk_size: number;
+  child_chunk_size: number;
+  parent_chunk_overlap: number;
+}
+
+export interface IndexSource {
+  id: number;
+  url: string;
+  kind: "wiki" | "repo";
+  created_at: string;
+}
+
+export interface IndexSettings {
+  meta: IndexStatus["meta"];
+  chunk_config: ChunkConfig;
+  sources: IndexSource[];
+}
+
+export interface PreparedNode {
+  id: string;
+  parent_id: string | null;
+  is_leaf: boolean;
+  position: number;
+  content: string;
+  metadata: Record<string, unknown>;
+  embed_text: string | null;
+}
+
+export interface PrepareResult {
+  file_path: string;
+  status: "new" | "changed" | "unchanged" | "empty";
+  content_hash?: string;
+  document?: {
+    file_path: string;
+    file_name: string;
+    source_url: string;
+    content_hash: string;
+    content: string;
+    metadata: Record<string, unknown>;
+    nodes: PreparedNode[];
+  };
+}

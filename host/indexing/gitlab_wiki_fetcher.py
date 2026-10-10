@@ -1,7 +1,7 @@
 """GitLab wiki fetcher.
 
 Retrieves all markdown pages from a GitLab wiki via the REST API and returns
-them as LlamaIndex Document objects. Each document carries a ``source_url``
+them as Documents. Each document carries a ``source_url``
 metadata field pointing to the original GitLab wiki page.
 
 Supported input URL formats:
@@ -15,9 +15,9 @@ import time
 from typing import List, Optional
 
 import requests
-from llama_index.core import Document
 
 from indexing.console import log_info, log_warn
+from indexing.source_document import Document
 
 
 def _parse_wiki_url(wiki_url: str):

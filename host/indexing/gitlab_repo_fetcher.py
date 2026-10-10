@@ -1,21 +1,19 @@
 """GitLab repository fetcher.
 
 Downloads supported documents (.md, .adoc, .pdf, .docx, .doc) from a GitLab
-repository via the REST API and returns them as LlamaIndex Document objects.
+repository via the REST API and returns them as Documents with the file's bytes (base64) for the NAS to extract.
 Each document carries a ``source_url`` metadata field pointing to the
 original file in GitLab (``/-/blob/<branch>/<path>`` format).
 """
 
-import base64
 import re
 import time
 from typing import List, Optional
 
 import requests
-from llama_index.core import Document
 
 from indexing.console import log_info, log_warn
-from indexing.document_parser import parse_pdf_bytes, parse_docx_bytes
+from indexing.source_document import Document
 
 _SUPPORTED_EXTS = frozenset({".md", ".adoc", ".pdf", ".docx", ".doc"})
 
@@ -183,30 +181,13 @@ def fetch_repo_documents(
             log_warn(f"Failed to fetch {file_path}: {exc}")
             continue
 
+        # The NAS extracts the text (Markdown, PDF, DOCX), the same way for
+        # documents indexed from the app, so both get identical chunks.
         file_data = resp.json()
-        raw = base64.b64decode(file_data.get("content", ""))
-
-        try:
-            if ext in (".md", ".adoc"):
-                text = raw.decode("utf-8", errors="replace")
-            elif ext == ".pdf":
-                text = parse_pdf_bytes(raw, file_path)
-            elif ext in (".docx", ".doc"):
-                text = parse_docx_bytes(raw, file_path)
-            else:
-                log_warn(f"Unsupported extension '{ext}' for {file_path}, skipping")
-                continue
-        except Exception as exc:
-            log_warn(f"Failed to parse {file_path}: {exc}")
-            continue
-
-        if not text.strip():
-            log_warn(f"Skipping empty file: {file_path}")
-            continue
 
         source_url = f"{base_url}/{project_path}/-/blob/{branch}/{file_path}"
         doc = Document(
-            text=text,
+            data_base64=file_data.get("content", ""),
             metadata={
                 "source_url": source_url,
                 "file_name": file_path.split("/")[-1],

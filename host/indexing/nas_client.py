@@ -34,6 +34,13 @@ class NasClient:
     def status(self) -> dict:
         return self._request("GET", "/api/index")
 
+    def settings(self) -> dict:
+        """Chunk configuration, sources and the current index meta."""
+        return self._request("GET", "/api/index/settings")
+
+    def prepare_document(self, document: dict) -> dict:
+        return self._request("POST", "/api/index/prepare", json=document)
+
     def put_meta(self, meta: dict, reset: bool) -> dict:
         return self._request("PUT", "/api/index/meta", json={**meta, "reset": reset})
 

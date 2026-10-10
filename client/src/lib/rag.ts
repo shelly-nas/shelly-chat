@@ -76,7 +76,7 @@ export interface AskResult {
 
 export async function ask(o: AskOptions): Promise<AskResult> {
   if (!o.config.embed_model) {
-    throw new Error("Er is nog niets geïndexeerd. Draai eerst de indexer (host/README.md).");
+    throw new Error("Er is nog niets geïndexeerd. Open Index in de zijbalk om documenten te indexeren.");
   }
 
   let query = o.question;

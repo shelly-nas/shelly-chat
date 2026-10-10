@@ -42,15 +42,20 @@ van de gebruiker, en de browser praat daar zelf mee.
 | Map | Draait op | Rol |
 |---|---|---|
 | `client/` | NAS (nginx) | React + MUI. Roept `/api` op de NAS aan **én** Ollama op `localhost:11434` (`src/lib/ollama.ts`, `src/lib/rag.ts`) |
-| `server/` | NAS | FastAPI zonder AI-dependencies: afkortingen (`/api/expand`), vectorzoeken + auto-merge (`/api/retrieve`), gesprekken, index-API (`/api/index/*`, met `INDEX_TOKEN`) |
+| `server/` | NAS | FastAPI zonder AI-modellen: afkortingen (`/api/expand`), vectorzoeken + auto-merge (`/api/retrieve`), gesprekken, index-API (`/api/index/*`, met `INDEX_TOKEN`), en documenten uitpakken + knippen (`/api/index/prepare`, LlamaIndex' tekstsplitter) |
 | `database/` | NAS | Postgres 16 + **pgvector** (in `database/Dockerfile` gebouwd op `postgres:16-alpine`, zodat uid 70 blijft). CI gebruikt `pgvector/pgvector:0.8.0-pg16`; houd de versies gelijk |
-| `host/` | computer met Ollama | Indexer (GitLab → chunks → Ollama-embeddings → `PUT /api/index/documents`) en RAGAS-evaluatie. Geen Docker, niet in de deploy |
+| `host/` | computer met Ollama | CLI-indexer en RAGAS-evaluatie. Geen Docker, niet in de deploy |
 
 Vraagflow: `POST /api/expand` → Ollama `/api/embed` (model van de index, `GET /api/config`) →
 `POST /api/retrieve` → Ollama `/api/chat` (streaming NDJSON) → `POST /api/conversations`.
 `host/rag.py` is dezelfde flow in Python. Wijzig je de prompt of de stappen, doe dat dan in beide.
 
+Indexflow (scherm Index, `client/src/lib/indexer.ts`): GitLab ophalen in de browser → `POST /api/index/prepare`
+(NAS pakt uit, hasht, knipt; ongewijzigd stopt hier) → Ollama `/api/embed` voor de leaves → `PUT /api/index/documents`.
+`host/indexing/indexer.py` is dezelfde run als CLI. Wijzig je de regels (reset, verwijderen), doe dat dan in beide.
+
 Regels:
-- Zet niets op de server dat een model laadt (geen torch, sentence-transformers of Ollama-calls).
+- Zet niets op de server dat een model laadt (geen torch, sentence-transformers of Ollama-calls). De tekstsplitter van llama-index-core is geen model en mag.
+- GitLab- en index-tokens van gebruikers blijven in de browser (localStorage); sla ze niet op de NAS op.
 - De `embedding`-kolom heeft geen vaste dimensie. Een ander embeddingmodel betekent een reset door de indexer, geen migratie.
 - Ollama staat alleen origins toe die in `OLLAMA_ORIGINS` staan. Nieuwe hostnamen moeten in de README-instructies.
