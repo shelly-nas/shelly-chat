@@ -28,6 +28,7 @@ import MessageView, { type ViewMessage } from "../components/MessageView";
 import Readiness from "../components/Readiness";
 import SourcesPanel from "../components/SourcesPanel";
 import { ApiError, api } from "../lib/api";
+import { randomId } from "../lib/id";
 import { OllamaError } from "../lib/ollama";
 import { ask, type Stage } from "../lib/rag";
 
@@ -130,8 +131,8 @@ export default function ChatPage() {
   const send = async (question: string, base: ViewMessage[] = messages) => {
     if (!question.trim() || busy || !config || indexId === null) return;
     const history = base.filter((m) => !m.error && !m.pending && !m.stopped);
-    const userId = crypto.randomUUID();
-    const answerId = crypto.randomUUID();
+    const userId = randomId();
+    const answerId = randomId();
     setMessages([
       ...base.filter((m) => !m.error),
       { id: userId, role: "user", content: question },
