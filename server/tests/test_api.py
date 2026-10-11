@@ -167,6 +167,10 @@ def test_sources_and_token_check(client):
     assert client.get("/api/index/auth").status_code == 401
     assert client.get("/api/index/auth", headers=AUTH).json() == {"ok": True}
 
+    # Start from no sources (the demo seed adds the whole folder as one).
+    for existing in client.get("/api/index/settings").json()["sources"]:
+        client.delete(f"/api/index/sources/{existing['id']}", headers=AUTH)
+
     folder = client.post("/api/index/sources", json={"path": "/handboek/"}, headers=AUTH)
     assert folder.status_code == 201, folder.text
     assert folder.json()["path"] == "handboek" and folder.json()["documents"] == 1
