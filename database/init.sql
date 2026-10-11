@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS indexes (
 );
 
 -- Folders (recursively) or single files in an index, as paths relative to the
--- documents folder on the NAS (DOCUMENTS_DIR). '' is the whole folder.
+-- documents folder on the NAS (DOCUMENTS_DIR, / on acc and prod). '' is the
+-- whole folder, refused when that is the whole NAS.
 CREATE TABLE IF NOT EXISTS index_sources (
     id         bigserial   PRIMARY KEY,
     index_id   bigint      NOT NULL REFERENCES indexes (id) ON DELETE CASCADE,

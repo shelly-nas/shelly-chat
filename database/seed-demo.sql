@@ -5,10 +5,12 @@
 -- runs Ollama. Click Indexeren on the Index screen to fill it.
 
 -- Acc rebuilds its database on every deploy: start with one index over the
--- whole documents folder, so indexing is one click there.
+-- documents folder of the deploy, so indexing is one click there. On acc the
+-- server sees the whole NAS (/); locally that folder does not exist, so add
+-- ./documents itself (the empty path) as a source there.
 INSERT INTO indexes (name) VALUES ('Alle documenten') ON CONFLICT (name) DO NOTHING;
 INSERT INTO index_sources (index_id, path)
-SELECT id, '' FROM indexes WHERE name = 'Alle documenten'
+SELECT id, 'volume1/docker/shelly-chat/documents' FROM indexes WHERE name = 'Alle documenten'
 ON CONFLICT (index_id, path) DO NOTHING;
 
 DO $$

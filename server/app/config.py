@@ -29,8 +29,9 @@ DB_NAME = os.getenv("DB_NAME", "chat")
 INDEX_TOKEN = os.getenv("INDEX_TOKEN", "")
 
 # The documents folder: where the server finds the files to index, mounted
-# read-only. DOCUMENTS_DIR is the same folder as the NAS sees it, only shown in
-# the app so people know which folder source paths are relative to.
+# read-only. DOCUMENTS_DIR is the same folder as the NAS sees it (/ on acc and
+# prod). When it is absolute, sources are shown and may be typed as absolute
+# paths on the NAS (see app/files.py).
 DOCUMENTS_ROOT = os.getenv("DOCUMENTS_ROOT", "/data/documents")
 DOCUMENTS_DIR = os.getenv("DOCUMENTS_DIR", "")
 

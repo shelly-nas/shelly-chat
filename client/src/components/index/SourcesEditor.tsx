@@ -1,5 +1,7 @@
 // The sources of one index: folders or files in the documents folder, with a
-// browser to pick them.
+// browser to pick them. The NAS stores them relative to the documents folder;
+// when that is an absolute path on the NAS (on acc and prod it is /, the whole
+// file system), they are shown and typed as absolute paths.
 import AddIcon from "@mui/icons-material/Add";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -35,20 +37,37 @@ interface Props {
   onToast: (message: string) => void;
 }
 
+/** How a stored (relative) path is shown: "/home/jelle/docs" when DOCUMENTS_DIR is "/". */
+export function displayPath(documentsDir: string | undefined, path: string): string {
+  const dir = (documentsDir ?? "").replace(/\/+$/, "");
+  if (!(documentsDir ?? "").startsWith("/")) return path;
+  return path ? `${dir}/${path}` : dir || "/";
+}
+
 export default function SourcesEditor({ index, settings, token, canEdit, onChanged, onToast }: Props) {
   const [newSource, setNewSource] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [browsing, setBrowsing] = useState<BrowseResult | null>(null);
 
+  const absolute = settings?.documents_dir?.startsWith("/") ?? false;
+  const show = (path: string) => displayPath(settings?.documents_dir, path);
+  // In the text field a folder ends in "/", so the browser opens it.
+  const asInput = (path: string, folder: boolean) => {
+    const shown = show(path);
+    return folder && !shown.endsWith("/") ? `${shown}/` : shown;
+  };
+
   // The folder browser shows what is in the folder typed so far.
   useEffect(() => {
-    const folder = newSource.includes("/") ? newSource.slice(0, newSource.lastIndexOf("/")) : "";
+    if (!canEdit) return;
+    const cut = newSource.lastIndexOf("/");
+    const folder = cut > 0 ? newSource.slice(0, cut) : cut === 0 ? "/" : "";
     const t = setTimeout(() => {
-      api.browse(folder).then(setBrowsing).catch(() => {});
+      api.browse(token, folder).then(setBrowsing).catch(() => {});
     }, 200);
     return () => clearTimeout(t);
-  }, [newSource]);
+  }, [newSource, token, canEdit]);
 
   const add = async () => {
     setAdding(true);
@@ -80,9 +99,18 @@ export default function SourcesEditor({ index, settings, token, canEdit, onChang
       {settings && (
         <Alert severity={settings.documents_root_exists ? "info" : "error"} icon={false}>
           <Typography variant="body2" sx={{ color: "text.primary" }}>
-            Paden zijn relatief aan de documentenmap{dir ? <> <strong>{dir}</strong></> : null}. Een bron{" "}
-            <code>handboek</code> is dus {dir ? <code>{`${dir}/handboek`}</code> : "de map handboek daarin"}, met alles
-            erin. Ondersteund: .md, .adoc, .txt, .pdf, .docx en .doc.
+            {absolute ? (
+              <>
+                Een bron is een map (met alles erin) of een bestand op de NAS, met het volledige pad
+                {dir ? <> binnen <strong>{dir}</strong></> : null}, bijvoorbeeld <code>{show("home/jelle/Documenten")}</code>.
+              </>
+            ) : (
+              <>
+                Paden zijn relatief aan de documentenmap{dir ? <> <strong>{dir}</strong></> : null}. Een bron{" "}
+                <code>handboek</code> is dus de map handboek daarin, met alles erin.
+              </>
+            )}{" "}
+            Ondersteund: .md, .adoc, .txt, .pdf, .docx en .doc.
           </Typography>
           {!settings.documents_root_exists && (
             <Typography variant="body2" sx={{ mt: 2, color: "text.primary" }}>
@@ -99,7 +127,7 @@ export default function SourcesEditor({ index, settings, token, canEdit, onChang
           {index.sources.map((s) => (
             <Stack key={s.id} component="li" direction="row" alignItems="center" spacing={3} sx={{ minHeight: 44 }}>
               <Typography variant="body2" sx={{ flex: 1, color: "text.primary", overflowWrap: "anywhere", fontFamily: MONO }}>
-                {s.path || "(hele documentenmap)"}
+                {absolute ? show(s.path) : s.path || "(hele documentenmap)"}
               </Typography>
               {s.exists ? (
                 <Chip
@@ -111,7 +139,7 @@ export default function SourcesEditor({ index, settings, token, canEdit, onChang
                 <Chip size="small" color="error" variant="outlined" icon={<ErrorOutlineIcon />} label="Bestaat niet" />
               )}
               <IconButton
-                aria-label={`Bron ${s.path || "documentenmap"} verwijderen`}
+                aria-label={`Bron ${show(s.path) || "documentenmap"} verwijderen`}
                 disabled={!canEdit}
                 onClick={() => remove(s.id)}
               >
@@ -132,9 +160,12 @@ export default function SourcesEditor({ index, settings, token, canEdit, onChang
       >
         <TextField
           label="Nieuwe bron"
-          placeholder="handboek of team/renovate.pdf (leeg = hele documentenmap)"
+          placeholder={absolute ? show("home/jelle/Documenten") : "handboek of team/renovate.pdf (leeg = hele documentenmap)"}
           value={newSource}
-          onChange={(e) => setNewSource(e.target.value)}
+          onChange={(e) => {
+            setNewSource(e.target.value);
+            setError(null);
+          }}
           error={error !== null}
           helperText={error ?? (canEdit ? "Kies hieronder, of typ een pad." : "Bronnen wijzigen kan met een geldig index-token.")}
           disabled={!canEdit}
@@ -151,20 +182,23 @@ export default function SourcesEditor({ index, settings, token, canEdit, onChang
           <List dense disablePadding aria-label="Inhoud van de documentenmap">
             {browsing.path && (
               <ListItemButton
-                onClick={() => setNewSource(browsing.path.includes("/") ? browsing.path.slice(0, browsing.path.lastIndexOf("/") + 1) : "")}
+                onClick={() => {
+                  const up = browsing.path.includes("/") ? browsing.path.slice(0, browsing.path.lastIndexOf("/")) : "";
+                  setNewSource(asInput(up, up !== "" || absolute));
+                }}
               >
                 <ArrowUpwardIcon fontSize="small" aria-hidden />
                 <ListItemText primary="Omhoog" primaryTypographyProps={{ fontSize: 14 }} />
               </ListItemButton>
             )}
             {browsing.folders.map((f) => (
-              <ListItemButton key={f} onClick={() => setNewSource(`${f}/`)}>
+              <ListItemButton key={f} onClick={() => setNewSource(asInput(f, true))}>
                 <FolderOutlinedIcon fontSize="small" aria-hidden />
                 <ListItemText primary={f.split("/").pop()} primaryTypographyProps={{ fontSize: 14 }} />
               </ListItemButton>
             ))}
             {browsing.documents.map((d) => (
-              <ListItemButton key={d} onClick={() => setNewSource(d)}>
+              <ListItemButton key={d} onClick={() => setNewSource(asInput(d, false))}>
                 <DescriptionOutlinedIcon fontSize="small" aria-hidden />
                 <ListItemText primary={d.split("/").pop()} primaryTypographyProps={{ fontSize: 14 }} />
               </ListItemButton>

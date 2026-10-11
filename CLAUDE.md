@@ -64,9 +64,11 @@ ongewijzigd komt direct in de index en stopt hier) → Ollama `/api/embed` voor 
 De systeemprompt staat in `app_settings` (`GET/PUT /api/settings`, zonder rij geldt `LLM_SYSTEM_PROMPT`) en komt via
 `GET /api/config` bij de browser en `host/rag.py`. Er is geen geschiedenis: elke vraag gebruikt de laatste.
 
-Documenten staan in de documentenmap op de NAS (`DOCUMENTS_DIR`, alleen-lezen gemount op `/data/documents`).
-Bronnen en `file_path`s zijn altijd relatief aan die map; ga voor elk pad door `app/files.py` (`resolve`), dat
-paden buiten de map weigert.
+De server leest documenten uit `DOCUMENTS_DIR`, alleen-lezen gemount op `/data/documents`. Op acc en prod is dat `/`,
+de hele NAS: in de UI zijn bronnen absolute paden. Opgeslagen bronnen en `file_path`s zijn altijd relatief aan die
+map; ga voor elk pad door `app/files.py` (`normalize` zet een absoluut pad om, `resolve` weigert paden buiten de map).
+Omdat de server de hele NAS ziet: bladeren vraagt het token, `/api/files` serveert alleen geïndexeerde documenten,
+`/` kan geen bron zijn en systeemmappen worden overgeslagen. Houd die grenzen.
 
 Regels:
 - Zet niets op de server dat een model laadt (geen torch, sentence-transformers of Ollama-calls). De tekstsplitter van llama-index-core is geen model en mag.

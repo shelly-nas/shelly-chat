@@ -21,7 +21,7 @@ flowchart LR
         C["client<br/>nginx + React"]
         S["server<br/>FastAPI :3000"]
         D[("db<br/>Postgres 16 + pgvector")]
-        F[/"documentenmap<br/>DOCUMENTS_DIR (alleen-lezen)"/]
+        F[/"bestanden op de NAS<br/>/ (alleen-lezen)"/]
     end
 
     B -- "pagina" --> C
@@ -84,17 +84,23 @@ de datum. **Standaard herstellen** zet hem terug op `LLM_SYSTEM_PROMPT` (of de i
 
 ### De documentenmap
 
-De documenten staan in één map op de NAS, `DOCUMENTS_DIR` (standaard
-`/volume1/docker/shelly-chat/documents`). Die map wordt alleen-lezen in de server gemount, op
-`/data/documents`. **Een bron is een pad relatief aan die map**: `handboek` is
-`<DOCUMENTS_DIR>/handboek` met alles erin, `team/renovate.pdf` is één bestand, en leeg is de hele map.
-Een absoluut pad werkt niet. De server ziet alleen wat in de documentenmap staat, en weigert paden met
-`..` of symlinks die eruit wijzen. Bij de bronnen van een index kun je door de map bladeren. Bij een
-bron in de chat opent **Openen** het originele document via `GET /api/files/<pad>`.
+Op acc en productie ziet de server **de hele NAS**: `/` wordt alleen-lezen in de server gemount, op
+`/data/documents`. **Een bron is dus gewoon een absoluut pad op de NAS**, zoals
+`/home/Jelle/Documents/Professioneel/JEX/Documenten` (een map, met alles erin) of
+`/volume1/team/renovate.pdf` (één bestand). Bij de bronnen van een index kun je door de NAS bladeren.
 
-Acc en productie lezen dezelfde map. Een andere map, bijvoorbeeld een gedeelde map als
-`/volume1/Documenten`, stel je in met de GitHub-variable `DOCUMENTS_DIR`. Lokaal is het `./documents`
-in de repo (staat in `.gitignore`).
+Omdat de server alles kan lezen, gelden deze grenzen:
+- Alleen ondersteunde documenten tellen mee (`.md`, `.adoc`, `.txt`, `.pdf`, `.docx`, `.doc`), en verborgen
+  mappen (`.git`), Synology-mappen (`@eaDir`, `@docker`) en systeemmappen (`/proc`, `/sys`, `/dev`, `/run`,
+  `/tmp`) worden overgeslagen.
+- `/` zelf kan geen bron zijn; kies een map.
+- Bladeren door de NAS vraagt het `INDEX_TOKEN`.
+- **Openen** bij een bron in de chat (`GET /api/files/<pad>`) geeft alleen documenten die in een index
+  zitten, nooit andere bestanden van de NAS.
+
+Wil je de server toch tot één map beperken, zet dan de GitHub-variable `DOCUMENTS_DIR`, bijvoorbeeld
+`/volume1/Documenten`. Bronnen zijn dan absolute paden binnen die map. Lokaal is het `./documents` in de
+repo (staat in `.gitignore`), en zijn bronnen paden relatief aan die map.
 
 Ten opzichte van de vorige opzet (Qdrant + `docstore.json` + `abbreviations.json` + Next.js) is dit
 veranderd:
@@ -177,7 +183,7 @@ host/        CLI-indexer en evaluatie, draaien naast Ollama                     
 | `DB_USER`, `DB_NAME` | GitHub variable | database |
 | `DB_PASSWORD` | GitHub secret | database |
 | `INDEX_TOKEN` | GitHub secret | token om de index en de bronnen te wijzigen, verplicht op acc en prod (`openssl rand -hex 32`) |
-| `DOCUMENTS_DIR` | GitHub variable (optioneel) | documentenmap op de NAS, standaard `/volume1/docker/shelly-chat/documents` |
+| `DOCUMENTS_DIR` | GitHub variable (optioneel) | map op de NAS die de server mag lezen, standaard `/` (de hele NAS) |
 | `LLM_MODEL_NAME` | GitHub variable (optioneel) | standaard chatmodel, standaard `gemma4:latest` |
 | `LLM_SYSTEM_PROMPT` | GitHub variable (optioneel) | standaard-systeemprompt; aan te passen in de app onder **Instellingen**. `{today}` wordt de datum |
 | `NO_ANSWER_RESPONSE` | GitHub variable (optioneel) | antwoord als er geen bronnen zijn |
@@ -197,8 +203,8 @@ mergen van de release-PR van release-please deployt productie. Eenmalig:
    secrets `REGISTRY_PASSWORD`, `DB_PASSWORD` en `INDEX_TOKEN`.
 2. *Settings → Actions → General*: "Allow GitHub Actions to create and approve pull requests" aanzetten.
 3. Op de NAS: `mkdir -p /volume1/docker/shelly-chat/data/postgres && sudo chown -R 70:70 /volume1/docker/shelly-chat/data/postgres`,
-   en `mkdir -p /volume1/docker/shelly-chat/documents` (of de map uit `DOCUMENTS_DIR`). Zet daar de documenten in.
+   en `mkdir -p /volume1/docker/shelly-chat/documents` voor de demodata op acc.
 4. Na de eerste deploy: open **Indexen**, vul het `INDEX_TOKEN` in, maak een index, voeg de bronnen
    toe en klik op **Index bijwerken**. De database op acc wordt bij elke deploy opnieuw opgebouwd. Op
-   acc staat daarom al een index "Alle documenten" klaar met de hele documentenmap als bron (demodata);
+   acc staat daarom al een index "Alle documenten" klaar met `/volume1/docker/shelly-chat/documents` als bron (demodata);
    je hoeft daar alleen op **Alle indexen bijwerken** te klikken.

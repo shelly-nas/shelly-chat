@@ -91,7 +91,8 @@ export const api = {
   indexSettings: () => request<IndexSettings>("/api/index/settings"),
   checkIndexToken: (token: string) =>
     request<{ ok: boolean }>("/api/index/auth", { headers: bearer(token) }),
-  browse: (path: string) => request<BrowseResult>(`/api/index/browse?path=${encodeURIComponent(path)}`),
+  browse: (token: string, path: string) =>
+    request<BrowseResult>(`/api/index/browse?path=${encodeURIComponent(path)}`, { headers: bearer(token) }),
   putIndexMeta: (token: string, meta: { embed_model: string; embed_dimensions: number; reset: boolean }) =>
     request<unknown>("/api/index/meta", { method: "PUT", headers: bearer(token), body: JSON.stringify(meta) }),
   indexedDocuments: (token: string) =>

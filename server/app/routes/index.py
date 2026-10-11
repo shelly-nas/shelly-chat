@@ -71,9 +71,12 @@ def index_settings():
     }
 
 
-@router.get("/browse")
+@router.get("/browse", dependencies=[Depends(require_token)])
 def browse(path: str = ""):
-    """Folders and documents directly inside a folder, to pick sources from."""
+    """Folders and documents directly inside a folder, to pick sources from.
+
+    Behind the token: on the NAS the documents folder is the whole file system.
+    """
     try:
         return files.browse(path)
     except files.PathError as exc:

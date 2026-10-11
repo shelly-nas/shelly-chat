@@ -65,7 +65,7 @@ preciezer. `AUTOMERGE_THRESHOLD` bepaalt vanaf welk deel van de gevonden leaves 
 meegegeven.
 
 Ondersteunde bestanden: `.md`, `.adoc`, `.txt`, `.pdf`, `.docx` en `.doc` (best-effort). Bronnen zijn
-paden relatief aan de documentenmap op de NAS (zie de README in de root).
+absolute paden op de NAS, zoals `/home/Jelle/Documenten` (zie de README in de root).
 
 ## Een vraag stellen vanuit de terminal
 

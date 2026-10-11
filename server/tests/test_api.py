@@ -124,7 +124,8 @@ def test_indexes_sources_and_ignore_patterns(client):
     renamed = client.patch(f"/api/indexes/{bv['id']}", json={"name": "Mijn BV bv"}, headers=AUTH).json()
     assert renamed["name"] == "Mijn BV bv"
 
-    browse = client.get("/api/index/browse").json()
+    assert client.get("/api/index/browse").status_code == 401
+    browse = client.get("/api/index/browse", headers=AUTH).json()
     assert browse == {"path": "", "folders": ["bv", "team"], "documents": ["los.md"]}
 
     client.delete(f"/api/indexes/{bv['id']}", headers=AUTH)
@@ -244,9 +245,50 @@ def test_system_prompt_setting(client):
     assert client.get("/api/config").json()["system_prompt"] == default["default_system_prompt"]
 
 
-def test_serves_original_documents(client):
+def test_absolute_paths_on_the_nas(client, monkeypatch):
+    """On the NAS the documents folder is /, and sources are typed as absolute paths."""
+    from app import config
+
+    monkeypatch.setattr(config, "DOCUMENTS_DIR", "/volume1/docs")
+    index = new_index(client, "Absoluut", "/volume1/docs/bv/")
+    assert [s["path"] for s in index["sources"]] == ["bv"]
+    outside = client.post(f"/api/indexes/{index['id']}/sources", json={"path": "/home/elders"}, headers=AUTH)
+    assert outside.status_code == 422 and "buiten de documentenmap" in outside.json()["detail"]
+    assert client.get("/api/index/browse", params={"path": "/volume1/docs/bv"}, headers=AUTH).json()["path"] == "bv"
+
+    # The whole NAS: never as one source, and its system folders are skipped.
+    monkeypatch.setattr(config, "DOCUMENTS_DIR", "/")
+    whole = client.post(f"/api/indexes/{index['id']}/sources", json={"path": "/"}, headers=AUTH)
+    assert whole.status_code == 422
+    assert client.post(f"/api/indexes/{index['id']}/sources", json={"path": "/team"}, headers=AUTH).status_code == 201
+    client.delete(f"/api/indexes/{index['id']}", headers=AUTH)
+
+
+def test_skips_system_folders_at_the_root(tmp_path, monkeypatch):
+    from app import config, files
+
+    (tmp_path / "proc").mkdir()
+    (tmp_path / "proc" / "x.txt").write_text("kernel")
+    (tmp_path / "home" / "proc").mkdir(parents=True)
+    (tmp_path / "home" / "proc" / "notes.md").write_text("gewone map")
+    (tmp_path / "@docker").mkdir()
+    (tmp_path / "@docker" / "y.md").write_text("synology")
+    monkeypatch.setattr(config, "DOCUMENTS_ROOT", str(tmp_path))
+    monkeypatch.setattr(config, "DOCUMENTS_DIR", "/")
+    assert files.list_documents("home") == ["home/proc/notes.md"]
+    assert files.browse("/")["folders"] == ["home"]
+    with pytest.raises(files.PathError):
+        files.list_documents("")
+
+
+def test_serves_only_indexed_documents(client):
+    assert client.get("/api/files/los.md").status_code == 404
+    index = new_index(client, "Bestanden", "team", "los.md")
+    index_run(client, index["id"])
     r = client.get("/api/files/team/renovate.docx")
     assert r.status_code == 200 and r.headers["content-disposition"].startswith("inline")
     assert client.get("/api/files/los.md").text == "los bestand in de root"
     assert client.get("/api/files/bv/notities.xyz").status_code == 404
     assert client.get("/api/files/..%2F..%2Fetc%2Fpasswd").status_code == 404
+    client.delete(f"/api/indexes/{index['id']}", headers=AUTH)
+    assert client.get("/api/files/los.md").status_code == 404
