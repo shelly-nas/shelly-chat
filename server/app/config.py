@@ -28,6 +28,12 @@ DB_NAME = os.getenv("DB_NAME", "chat")
 # and acc compose files refuse to start without it.
 INDEX_TOKEN = os.getenv("INDEX_TOKEN", "")
 
+# The documents folder: where the server finds the files to index, mounted
+# read-only. DOCUMENTS_DIR is the same folder as the NAS sees it, only shown in
+# the app so people know which folder source paths are relative to.
+DOCUMENTS_ROOT = os.getenv("DOCUMENTS_ROOT", "/data/documents")
+DOCUMENTS_DIR = os.getenv("DOCUMENTS_DIR", "")
+
 # Chunking. A change resets the index on the next indexing run: chunks of
 # two sizes do not mix. CHILD_CHUNK_SIZE defaults to a quarter of the parent,
 # the ratio LlamaIndex's auto-merging is designed for.

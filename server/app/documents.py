@@ -1,18 +1,16 @@
-"""Turning a fetched document into hierarchical chunks.
+"""Turning a file from the documents folder into hierarchical chunks.
 
 Both ways of indexing - the Index screen in the app and the CLI in host/ -
-fetch documents from GitLab on the user's machine and send them here: plain
-text for Markdown, base64 bytes for PDF and DOCX. The NAS extracts the text,
-hashes it and splits it, so every document gets the same chunks whichever way
-it was indexed. Only the embedding happens back on the user's machine.
+ask the NAS to prepare each document: read it from the documents folder,
+extract the text, hash it and split it. Only the embedding happens on the
+user's machine, where Ollama runs.
 
 No model is involved: HierarchicalNodeParser is a token-counting text
 splitter, with its tokenizer shipped inside llama-index-core.
 """
 
-import base64
 import hashlib
-import io
+from pathlib import Path
 
 from llama_index.core import Document
 from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
@@ -20,33 +18,20 @@ from llama_index.core.schema import MetadataMode
 
 from app import config
 
-TEXT_EXTENSIONS = {".md", ".adoc", ".txt"}
-BINARY_EXTENSIONS = {".pdf", ".docx", ".doc"}
 
-
-def extension(file_name: str) -> str:
-    name = file_name.rsplit("/", 1)[-1]
-    return "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
-
-
-def extract_text(file_name: str, text: str | None, data_base64: str | None) -> str:
-    """The plain text of a document, from text or from base64 file bytes."""
-    if text is not None:
-        return text
-    if data_base64 is None:
-        raise ValueError("Stuur text of data_base64 mee.")
-    raw = base64.b64decode(data_base64)
-    ext = extension(file_name)
-    if ext in TEXT_EXTENSIONS:
-        return raw.decode("utf-8", errors="replace")
+def extract_text(path: Path) -> str:
+    """The plain text of a Markdown, text, PDF or DOCX file."""
+    ext = path.suffix.lower()
+    if ext in (".md", ".adoc", ".txt"):
+        return path.read_text(encoding="utf-8", errors="replace")
     if ext == ".pdf":
         from pdfminer.high_level import extract_text as pdf_text
 
-        return pdf_text(io.BytesIO(raw)) or ""
+        return pdf_text(str(path)) or ""
     if ext in (".docx", ".doc"):
         import docx
 
-        return "\n".join(p.text for p in docx.Document(io.BytesIO(raw)).paragraphs)
+        return "\n".join(p.text for p in docx.Document(str(path)).paragraphs)
     raise ValueError(f"Bestandstype {ext or '(geen)'} wordt niet ondersteund.")
 
 
@@ -67,8 +52,10 @@ def split(text: str, metadata: dict, hash_: str) -> list[dict]:
     doc = Document(text=text, metadata={**metadata, "content_hash": hash_})
     # The hash identifies the document version; it must not end up in what
     # gets embedded or shown to the model.
-    doc.excluded_embed_metadata_keys.append("content_hash")
-    doc.excluded_llm_metadata_keys.append("content_hash")
+    # source_url is an app link (/api/files/...), not something to search on.
+    for key in ("content_hash", "source_url"):
+        doc.excluded_embed_metadata_keys.append(key)
+        doc.excluded_llm_metadata_keys.append(key)
 
     parser = HierarchicalNodeParser.from_defaults(
         chunk_sizes=[config.PARENT_CHUNK_SIZE, config.CHILD_CHUNK_SIZE]

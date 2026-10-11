@@ -1,4 +1,4 @@
-// The sources of one answer, one at a time, with a link back to GitLab.
+// The sources of one answer, one at a time, with a link to the original document.
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";

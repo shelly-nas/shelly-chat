@@ -1,32 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extensionOf, parseRepoUrl, parseWikiUrl } from "./gitlab";
 import { resetReason } from "./indexer";
-
-describe("GitLab URLs", () => {
-  it("reads wiki URLs with or without a page", () => {
-    expect(parseWikiUrl("https://gitlab.example.com/team/handbook/-/wikis/home")).toEqual({
-      base: "https://gitlab.example.com",
-      project: "team/handbook",
-    });
-    expect(parseWikiUrl("https://gitlab.example.com/a/b/c/-/wikis/").project).toBe("a/b/c");
-  });
-
-  it("reads a branch and folder from tree URLs", () => {
-    expect(parseRepoUrl("https://gitlab.example.com/team/app/-/tree/main/docs?ref_type=heads")).toEqual({
-      base: "https://gitlab.example.com",
-      project: "team/app",
-      branch: "main",
-      path: "docs",
-    });
-    expect(parseRepoUrl("https://gitlab.example.com/team/app")).toMatchObject({ project: "team/app", branch: undefined });
-  });
-
-  it("finds extensions", () => {
-    expect(extensionOf("docs/Handleiding.PDF")).toBe(".pdf");
-    expect(extensionOf("Makefile")).toBe("");
-  });
-});
 
 describe("resetReason", () => {
   const chunks = { parent_chunk_size: 1500, child_chunk_size: 375, parent_chunk_overlap: 300 };

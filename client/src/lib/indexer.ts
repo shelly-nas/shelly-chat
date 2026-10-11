@@ -1,17 +1,17 @@
-// One indexing run from the browser: GitLab → NAS (split) → Ollama (embed) → NAS (store).
+// One indexing run from the browser: NAS (read + split) → Ollama (embed) → NAS (store).
 //
 //   1. Embedding model and dimension. A different model or chunk size than the
 //      index was built with means starting over: those vectors do not mix.
-//   2. List every source in GitLab first, so the total is known.
-//   3. Per document: POST /api/index/prepare (the NAS extracts, hashes and
-//      splits; unchanged documents stop here), embed the leaf chunks with
+//   2. The NAS lists every document in the sources (folders in its documents
+//      folder), so the total is known.
+//   3. Per document: POST /api/index/prepare (the NAS reads, extracts, hashes
+//      and splits; unchanged documents stop here), embed the leaf chunks with
 //      Ollama, PUT /api/index/documents.
-//   4. Remove documents that are gone from GitLab - only when every source
-//      could be read, so a VPN hiccup never empties the index.
+//   4. Remove documents that are gone from the sources - only when every
+//      source could be read, so a missing folder never empties the index.
 //
 // host/indexing/indexer.py is the same run for the command line.
 import { api } from "./api";
-import { listRepo, listWiki, type SourceItem } from "./gitlab";
 import { embedMany, unload } from "./ollama";
 import type { ChunkConfig, IndexSettings } from "./types";
 
@@ -36,7 +36,6 @@ export interface RunOptions {
   ollamaUrl: string;
   embedModel: string;
   indexToken: string;
-  gitlabToken: string;
   full: boolean;
   signal: AbortSignal;
   log: (level: LogLevel, message: string) => void;
@@ -77,39 +76,22 @@ export async function runIndex(o: RunOptions): Promise<RunCounts> {
   await api.putIndexMeta(o.indexToken, { embed_model: o.embedModel, embed_dimensions: dimensions, reset });
   const indexed = reset ? [] : await api.indexedDocuments(o.indexToken);
 
-  // 2. List the sources
-  const items: SourceItem[] = [];
-  let allListed = true;
-  for (const source of settings.sources) {
-    try {
-      const found = await (source.kind === "wiki" ? listWiki : listRepo)(source.url, o.gitlabToken, o.signal);
-      o.log("info", `${source.url}: ${found.length} ${source.kind === "wiki" ? "pagina's" : "bestanden"}`);
-      items.push(...found);
-    } catch (err) {
-      if (o.signal.aborted) throw err;
-      allListed = false;
-      o.log("error", `${source.url}: ${(err as Error).message} Deze bron wordt overgeslagen.`);
-    }
-  }
+  // 2. List the documents in the sources
+  const { files, missing } = await api.listFiles(o.indexToken);
+  for (const source of missing) o.log("error", `Bron '${source || "."}' bestaat niet (meer) in de documentenmap; overgeslagen.`);
+  o.log("info", `${files.length} documenten in ${settings.sources.length} bronnen.`);
 
   const report = (current: string | null, done: number) =>
-    o.progress({ done, total: items.length, current, counts: { ...counts } });
+    o.progress({ done, total: files.length, current, counts: { ...counts } });
   report(null, 0);
 
   // 3. Prepare, embed and store each document
-  const seen = new Set<string>();
   try {
-    for (const [i, item] of items.entries()) {
+    for (const [i, filePath] of files.entries()) {
       if (o.signal.aborted) throw new DOMException("Gestopt", "AbortError");
-      seen.add(item.file_path);
-      report(item.file_name, i);
+      report(filePath, i);
       try {
-        const content = await item.load(o.signal);
-        const prepared = await api.prepareDocument(
-          o.indexToken,
-          { file_path: item.file_path, file_name: item.file_name, source_url: item.source_url, metadata: item.metadata, ...content },
-          o.signal,
-        );
+        const prepared = await api.prepareDocument(o.indexToken, filePath, o.signal);
         if (prepared.status === "unchanged" || prepared.status === "empty") {
           counts.unchanged++;
           continue;
@@ -130,27 +112,28 @@ export async function runIndex(o: RunOptions): Promise<RunCounts> {
         );
         counts[prepared.status]++;
         const extra = stored.abbreviations ? `, ${stored.abbreviations} afkortingen` : "";
-        o.log("success", `${item.file_name}: ${prepared.status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra}`);
+        o.log("success", `${filePath}: ${prepared.status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra}`);
       } catch (err) {
         if (o.signal.aborted) throw err;
         counts.failed++;
-        o.log("error", `${item.file_name}: ${(err as Error).message}`);
+        o.log("error", `${filePath}: ${(err as Error).message}`);
       }
     }
-    report(null, items.length);
+    report(null, files.length);
 
-    // 4. Remove what is gone from GitLab
+  // 4. Remove what is gone from the sources
+    const seen = new Set(files);
     const gone = indexed.map((d) => d.file_path).filter((p) => !seen.has(p));
-    if (gone.length && !allListed) {
+    if (gone.length && missing.length) {
       o.log("warning", `${gone.length} documenten niet verwijderd: niet elke bron kon worden gelezen.`);
     } else {
       for (const path of gone) {
         await api.deleteDocument(o.indexToken, path);
         counts.deleted++;
       }
-      if (gone.length) o.log("info", `${gone.length} documenten verwijderd die niet meer in GitLab staan.`);
+      if (gone.length) o.log("info", `${gone.length} documenten verwijderd die niet meer in de bronnen staan.`);
     }
-    report(null, items.length);
+    report(null, files.length);
   } finally {
     unload(o.ollamaUrl, o.embedModel).catch(() => {});
   }

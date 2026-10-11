@@ -1,20 +1,23 @@
 """The CLI indexer against fakes of the NAS and Ollama."""
 
 from indexing.indexer import IndexingConfig, reset_reason, run_pipeline
-from indexing.source_document import Document
 
 CHUNKS = {"parent_chunk_size": 1500, "child_chunk_size": 375, "parent_chunk_overlap": 300}
 
 
 class FakeNas:
-    def __init__(self, meta=None, indexed=None):
+    def __init__(self, meta=None, indexed=None, files=(), missing=()):
         self.meta = meta
         self.indexed = indexed or {}
+        self.files = list(files)
+        self.missing = list(missing)
         self.calls = []
 
     def settings(self):
-        return {"meta": self.meta, "chunk_config": CHUNKS,
-                "sources": [{"url": "https://g/team/x/-/wikis", "kind": "wiki"}]}
+        return {"meta": self.meta, "chunk_config": CHUNKS, "sources": [{"path": "handboek"}]}
+
+    def list_files(self):
+        return {"files": self.files, "missing": self.missing}
 
     def put_meta(self, meta, reset):
         self.calls.append(("meta", meta["embed_model"], reset))
@@ -22,14 +25,14 @@ class FakeNas:
     def indexed_hashes(self):
         return self.indexed
 
-    def prepare_document(self, body):
-        if body["text"] == "same":
+    def prepare_document(self, file_path):
+        if file_path == "a":
             return {"status": "unchanged"}
         nodes = [
             {"id": "p", "parent_id": None, "is_leaf": False, "embed_text": None},
             {"id": "c", "parent_id": "p", "is_leaf": True, "embed_text": "embed me"},
         ]
-        return {"status": "new", "document": {"file_path": body["file_path"], "nodes": nodes}}
+        return {"status": "new", "document": {"file_path": file_path, "nodes": nodes}}
 
     def put_document(self, document):
         self.calls.append(("put", document["file_path"], document["nodes"]))
@@ -50,28 +53,16 @@ class FakeEmbedder:
         pass
 
 
-def _run(monkeypatch, nas, docs, fetch_error=None):
-    config = IndexingConfig(gitlab_pat="pat")
+def _run(monkeypatch, nas):
     monkeypatch.setattr(IndexingConfig, "nas", lambda self: nas)
     monkeypatch.setattr(IndexingConfig, "embedder", lambda self: FakeEmbedder())
-
-    def fake_fetch(source, token):
-        if fetch_error:
-            raise ConnectionError(fetch_error)
-        return docs
-
-    monkeypatch.setattr("indexing.indexer.fetch_source", fake_fetch)
-    return run_pipeline(config)
-
-
-def _doc(path, text):
-    return Document(text=text, metadata={"file_path": path, "file_name": path, "source_url": path})
+    return run_pipeline(IndexingConfig())
 
 
 def test_embeds_new_skips_unchanged_and_removes_gone(monkeypatch):
     meta = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS}
-    nas = FakeNas(meta=meta, indexed={"a": "h", "gone": "h"})
-    counts = _run(monkeypatch, nas, [_doc("a", "same"), _doc("b", "new text")])
+    nas = FakeNas(meta=meta, indexed={"a": "h", "gone": "h"}, files=["a", "b"])
+    counts = _run(monkeypatch, nas)
 
     assert counts == {"new": 1, "changed": 0, "unchanged": 1, "deleted": 1, "failed": 0}
     assert ("meta", "qwen3-embedding:latest", False) in nas.calls
@@ -82,10 +73,10 @@ def test_embeds_new_skips_unchanged_and_removes_gone(monkeypatch):
     assert ("delete", "gone") in nas.calls
 
 
-def test_unreachable_source_never_deletes(monkeypatch):
+def test_missing_source_never_deletes(monkeypatch):
     meta = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS}
-    nas = FakeNas(meta=meta, indexed={"a": "h"})
-    counts = _run(monkeypatch, nas, [], fetch_error="VPN uit")
+    nas = FakeNas(meta=meta, indexed={"a": "h"}, files=[], missing=["handboek"])
+    counts = _run(monkeypatch, nas)
     assert counts["deleted"] == 0
     assert not any(c[0] == "delete" for c in nas.calls)
 

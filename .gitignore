@@ -19,6 +19,9 @@ npm-debug.log*
 # Local database data (production uses ./data/postgres on the NAS)
 data/
 
+# Local documents to index (see DOCUMENTS_DIR)
+documents/
+
 # Editor and OS
 .vscode/*
 !.vscode/extensions.json

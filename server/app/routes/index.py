@@ -1,22 +1,24 @@
-"""The document index, filled from the user's machine.
+"""The document index: files from the documents folder on the NAS.
 
-Indexing runs where Ollama (and the VPN to GitLab) is: the Index screen in the
-browser, or the CLI in host/. Either one fetches a document from GitLab, sends
-it to POST /api/index/prepare to be split into chunks, embeds the leaf chunks
-with its own Ollama, and stores the result with PUT /api/index/documents.
-Everything but the two GET summaries needs the INDEX_TOKEN as a bearer token.
+Indexing is driven from where Ollama runs - the Index screen in the browser,
+or the CLI in host/. Either one asks for the list of files in the sources
+(GET /api/index/files), has each one read, hashed and split here (POST
+/api/index/prepare), embeds the leaf chunks with its own Ollama, and stores
+the result with PUT /api/index/documents. Everything but the GET summaries
+needs the INDEX_TOKEN as a bearer token.
 
 Each document is replaced as a whole in one transaction, so a search never
 sees half a document and an interrupted run simply resumes on the next one.
 """
 
 import hmac
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from app import abbreviations, config, db, documents
+from app import abbreviations, config, db, documents, files
 
 router = APIRouter(prefix="/api/index")
 
@@ -50,15 +52,39 @@ def index_status():
     return {"meta": meta, **counts}
 
 
+def _source_info(row: dict) -> dict:
+    """A source with whether it exists and how many documents it holds now."""
+    try:
+        count, exists = len(files.list_documents(row["path"])), True
+    except files.PathError:
+        count, exists = 0, False
+    return {**row, "exists": exists, "documents": count}
+
+
 @router.get("/settings")
 def index_settings():
     """What an indexing run needs to know up front: chunking and sources."""
     with db.connection() as conn:
         meta = conn.execute(f"SELECT {_META_COLUMNS} FROM index_meta").fetchone()
         sources = conn.execute(
-            "SELECT id, url, kind, created_at FROM index_sources ORDER BY created_at, id"
+            "SELECT id, path, created_at FROM index_sources ORDER BY path"
         ).fetchall()
-    return {"meta": meta, "chunk_config": documents.chunk_config(), "sources": sources}
+    return {
+        "meta": meta,
+        "chunk_config": documents.chunk_config(),
+        "documents_dir": config.DOCUMENTS_DIR,
+        "documents_root_exists": files.root().is_dir(),
+        "sources": [_source_info(s) for s in sources],
+    }
+
+
+@router.get("/browse")
+def browse(path: str = ""):
+    """Folders and documents directly inside a folder, to pick sources from."""
+    try:
+        return files.browse(path)
+    except files.PathError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.get("/auth", dependencies=[Depends(require_token)])
@@ -68,22 +94,46 @@ def check_token():
 
 
 class NewSource(BaseModel):
-    url: str = Field(min_length=8, max_length=500, pattern=r"^https?://")
+    # Relative to the documents folder; '' is the whole folder.
+    path: str = Field(max_length=500)
 
 
 @router.post("/sources", status_code=201, dependencies=[Depends(require_token)])
 def add_source(request: NewSource):
-    url = request.url.strip().rstrip("/")
-    kind = "wiki" if "/-/wikis" in url else "repo"
+    try:
+        path = files.normalize(request.path)
+        files.list_documents(path)
+    except files.PathError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     with db.connection() as conn:
         row = conn.execute(
-            "INSERT INTO index_sources (url, kind) VALUES (%s, %s)"
-            " ON CONFLICT (url) DO NOTHING RETURNING id, url, kind, created_at",
-            (url, kind),
+            "INSERT INTO index_sources (path) VALUES (%s)"
+            " ON CONFLICT (path) DO NOTHING RETURNING id, path, created_at",
+            (path,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=409, detail="Deze bron staat er al.")
-    return row
+    return _source_info(row)
+
+
+@router.get("/files", dependencies=[Depends(require_token)])
+def list_files():
+    """Every document in the sources, plus the sources that could not be read.
+
+    The caller only removes documents that are gone when `missing` is empty:
+    a folder that is (temporarily) unavailable must not empty the index.
+    """
+    with db.connection() as conn:
+        sources = [r["path"] for r in conn.execute("SELECT path FROM index_sources ORDER BY path")]
+    found: dict[str, None] = {}
+    missing = []
+    for source in sources:
+        try:
+            for path in files.list_documents(source):
+                found[path] = None
+        except files.PathError:
+            missing.append(source)
+    return {"files": list(found), "missing": missing}
 
 
 @router.delete("/sources/{source_id}", status_code=204, dependencies=[Depends(require_token)])
@@ -144,51 +194,50 @@ def list_documents():
 
 class PrepareRequest(BaseModel):
     file_path: str = Field(min_length=1)
-    file_name: str = ""
-    source_url: str = ""
-    metadata: dict = Field(default_factory=dict)
-    # One of the two: the text itself, or the file's bytes (PDF, DOCX).
-    text: str | None = None
-    data_base64: str | None = None
 
 
 @router.post("/prepare", dependencies=[Depends(require_token)])
 def prepare_document(request: PrepareRequest):
-    """Extract, hash and split one document. Unchanged ones are not split again."""
+    """Read, hash and split one document. Unchanged ones are not split again."""
     try:
-        text = documents.extract_text(request.file_name or request.file_path, request.text, request.data_base64)
+        path = files.resolve(request.file_path)
+    except files.PathError as exc:
+        raise HTTPException(status_code=422, detail=f"{request.file_path}: {exc}")
+    if not files.is_supported(path):
+        raise HTTPException(status_code=404, detail=f"{request.file_path}: geen ondersteund document.")
+    file_path = files.relative(path)
+    try:
+        text = documents.extract_text(path)
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"{request.file_name or request.file_path}: {exc}")
+        raise HTTPException(status_code=422, detail=f"{file_path}: {exc}")
     if not text.strip():
-        return {"file_path": request.file_path, "status": "empty"}
+        return {"file_path": file_path, "status": "empty"}
 
     hash_ = documents.content_hash(text)
     with db.connection() as conn:
         stored = conn.execute(
-            "SELECT content_hash FROM documents WHERE file_path = %s", (request.file_path,)
+            "SELECT content_hash FROM documents WHERE file_path = %s", (file_path,)
         ).fetchone()
     if stored and stored["content_hash"] == hash_:
-        return {"file_path": request.file_path, "status": "unchanged", "content_hash": hash_}
+        return {"file_path": file_path, "status": "unchanged", "content_hash": hash_}
 
-    metadata = {
-        **request.metadata,
-        "file_path": request.file_path,
-        "file_name": request.file_name,
-        "source_url": request.source_url,
-    }
+    file_name = path.name
+    # The app opens the original through GET /api/files/<path>.
+    source_url = "/api/files/" + quote(file_path)
+    metadata = {"file_path": file_path, "file_name": file_name, "source_url": source_url}
     try:
         nodes = documents.split(text, metadata, hash_)
     except ValueError as exc:
         # E.g. metadata longer than a chunk when CHILD_CHUNK_SIZE is very small.
-        raise HTTPException(status_code=422, detail=f"{request.file_name or request.file_path}: {exc}")
+        raise HTTPException(status_code=422, detail=f"{file_path}: {exc}")
     return {
-        "file_path": request.file_path,
+        "file_path": file_path,
         "status": "changed" if stored else "new",
         "content_hash": hash_,
         "document": {
-            "file_path": request.file_path,
-            "file_name": request.file_name,
-            "source_url": request.source_url,
+            "file_path": file_path,
+            "file_name": file_name,
+            "source_url": source_url,
             "content_hash": hash_,
             "content": text,
             "metadata": metadata,

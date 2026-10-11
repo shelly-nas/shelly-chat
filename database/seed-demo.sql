@@ -2,8 +2,12 @@
 -- Skips itself when there are conversations already.
 --
 -- There is no demo index: embeddings depend on the model on the machine that
--- runs Ollama. Run the indexer (host/README.md) against the local or acc
--- stack to get documents to ask about.
+-- runs Ollama. Click Indexeren on the Index screen to fill it.
+
+-- Acc rebuilds its database on every deploy: start with the whole documents
+-- folder as a source, so indexing is one click there.
+INSERT INTO index_sources (path) VALUES ('') ON CONFLICT (path) DO NOTHING;
+
 DO $$
 DECLARE
     demo_id uuid := '00000000-0000-4000-8000-000000000001';

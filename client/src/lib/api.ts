@@ -5,6 +5,7 @@ import type {
   Conversation,
   ConversationSummary,
   ExpansionSource,
+  BrowseResult,
   IndexSettings,
   IndexSource,
   IndexStatus,
@@ -88,12 +89,15 @@ export const api = {
   indexSettings: () => request<IndexSettings>("/api/index/settings"),
   checkIndexToken: (token: string) =>
     request<{ ok: boolean }>("/api/index/auth", { headers: bearer(token) }),
-  addSource: (token: string, url: string) =>
+  browse: (path: string) => request<BrowseResult>(`/api/index/browse?path=${encodeURIComponent(path)}`),
+  addSource: (token: string, path: string) =>
     request<IndexSource>("/api/index/sources", {
       method: "POST",
       headers: bearer(token),
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ path }),
     }),
+  listFiles: (token: string) =>
+    request<{ files: string[]; missing: string[] }>("/api/index/files", { headers: bearer(token) }),
   deleteSource: (token: string, id: number) =>
     request<void>(`/api/index/sources/${id}`, { method: "DELETE", headers: bearer(token) }),
   putIndexMeta: (token: string, meta: { embed_model: string; embed_dimensions: number; reset: boolean }) =>
@@ -102,11 +106,11 @@ export const api = {
     request<{ documents: { file_path: string; content_hash: string }[] }>("/api/index/documents", {
       headers: bearer(token),
     }).then((r) => r.documents),
-  prepareDocument: (token: string, body: object, signal?: AbortSignal) =>
+  prepareDocument: (token: string, filePath: string, signal?: AbortSignal) =>
     request<PrepareResult>("/api/index/prepare", {
       method: "POST",
       headers: bearer(token),
-      body: JSON.stringify(body),
+      body: JSON.stringify({ file_path: filePath }),
       signal,
     }),
   putDocument: (token: string, document: object, signal?: AbortSignal) =>

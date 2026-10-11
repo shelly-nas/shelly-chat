@@ -14,11 +14,32 @@ TOKEN = "test-token"
 
 
 @pytest.fixture(scope="module")
-def client():
+def docs_root(tmp_path_factory):
+    """A documents folder like the one mounted on the NAS."""
+    import docx
+
+    root = tmp_path_factory.mktemp("documents")
+    (root / "handboek").mkdir()
+    (root / "handboek" / "brp.md").write_text(
+        " ".join(f"Zin {i} over de Basisregistratie Personen (BRP)." for i in range(400))
+    )
+    (root / "handboek" / "notities.xyz").write_text("niet ondersteund")
+    (root / "handboek" / ".verborgen.md").write_text("verborgen")
+    (root / "team").mkdir()
+    d = docx.Document()
+    d.add_paragraph("Het Renovate-proces opent pull requests.")
+    d.save(root / "team" / "renovate.docx")
+    (root / "geheim.md").write_text("los bestand in de root")
+    return root
+
+
+@pytest.fixture(scope="module")
+def client(docs_root):
     os.environ["INDEX_TOKEN"] = TOKEN
     from app import config
 
     config.INDEX_TOKEN = TOKEN
+    config.DOCUMENTS_ROOT = str(docs_root)
     from fastapi.testclient import TestClient
 
     from app.main import app
@@ -36,7 +57,7 @@ def _document(path: str, leaves: list[tuple[str, list[float]]]) -> dict:
     return {
         "file_path": path,
         "file_name": path.rsplit("/", 1)[-1],
-        "source_url": f"https://gitlab.example/{path}",
+        "source_url": f"/api/files/{path}",
         "content_hash": "hash-" + path,
         "content": "De Basisregistratie Personen (BRP) is de bron. " + " ".join(t for t, _ in leaves),
         "nodes": [
@@ -146,61 +167,63 @@ def test_sources_and_token_check(client):
     assert client.get("/api/index/auth").status_code == 401
     assert client.get("/api/index/auth", headers=AUTH).json() == {"ok": True}
 
-    wiki = client.post("/api/index/sources", json={"url": "https://gitlab.example/team/x/-/wikis/"}, headers=AUTH)
-    assert wiki.status_code == 201 and wiki.json()["kind"] == "wiki"
-    assert wiki.json()["url"] == "https://gitlab.example/team/x/-/wikis"
-    repo = client.post("/api/index/sources", json={"url": "https://gitlab.example/team/y"}, headers=AUTH)
-    assert repo.json()["kind"] == "repo"
-    dup = client.post("/api/index/sources", json={"url": "https://gitlab.example/team/y"}, headers=AUTH)
-    assert dup.status_code == 409
-    assert client.post("/api/index/sources", json={"url": "not a url"}, headers=AUTH).status_code == 422
+    folder = client.post("/api/index/sources", json={"path": "/handboek/"}, headers=AUTH)
+    assert folder.status_code == 201, folder.text
+    assert folder.json()["path"] == "handboek" and folder.json()["documents"] == 1
+    single = client.post("/api/index/sources", json={"path": "team/renovate.docx"}, headers=AUTH)
+    assert single.status_code == 201 and single.json()["documents"] == 1
+
+    assert client.post("/api/index/sources", json={"path": "handboek"}, headers=AUTH).status_code == 409
+    assert client.post("/api/index/sources", json={"path": "bestaat-niet"}, headers=AUTH).status_code == 422
+    escape = client.post("/api/index/sources", json={"path": "../../etc"}, headers=AUTH)
+    assert escape.status_code == 422 and ".." in escape.json()["detail"]
 
     settings = client.get("/api/index/settings").json()
-    assert [s["kind"] for s in settings["sources"]][-2:] == ["wiki", "repo"]
-    assert settings["chunk_config"] == {"parent_chunk_size": 1500, "child_chunk_size": 375, "parent_chunk_overlap": 300}
+    assert [s["path"] for s in settings["sources"]] == ["handboek", "team/renovate.docx"]
+    assert settings["documents_root_exists"] is True
 
-    for source in (wiki.json(), repo.json()):
+    listing = client.get("/api/index/files", headers=AUTH).json()
+    assert listing == {"files": ["handboek/brp.md", "team/renovate.docx"], "missing": []}
+
+    browse = client.get("/api/index/browse").json()
+    assert browse == {"path": "", "folders": ["handboek", "team"], "documents": ["geheim.md"]}
+    assert client.get("/api/index/browse", params={"path": "../"}).status_code == 404
+
+    for source in (folder.json(), single.json()):
         assert client.delete(f"/api/index/sources/{source['id']}", headers=AUTH).status_code == 204
 
 
-def test_prepare_splits_new_text_and_skips_unchanged(client):
+def test_prepare_reads_splits_and_skips_unchanged(client, docs_root):
     client.put("/api/index/meta", json={**META, "reset": True}, headers=AUTH)
-    text = " ".join(f"Zin {i} over de Basisregistratie Personen (BRP)." for i in range(400))
-    body = {"file_path": "https://g/x/-/wikis/brp", "file_name": "brp.md", "source_url": "https://g/x/-/wikis/brp", "text": text}
+    body = {"file_path": "handboek/brp.md"}
 
     r = client.post("/api/index/prepare", json=body, headers=AUTH).json()
     assert r["status"] == "new"
-    nodes = r["document"]["nodes"]
-    leaves = [n for n in nodes if n["is_leaf"]]
-    assert leaves and len(leaves) > len(nodes) - len(leaves)
-    assert all(n["embed_text"] and "brp.md" in n["embed_text"] and r["content_hash"] not in n["embed_text"] for n in leaves)
-
-    # Store it with embeddings, as the browser does after asking Ollama.
     doc = r["document"]
-    doc["nodes"] = [{**n, "embedding": [1.0, 0.0, 0.0] if n["is_leaf"] else None} for n in nodes]
+    assert doc["source_url"] == "/api/files/handboek/brp.md"
+    leaves = [n for n in doc["nodes"] if n["is_leaf"]]
+    assert leaves and len(leaves) > len(doc["nodes"]) - len(leaves)
+    assert all("brp.md" in n["embed_text"] and "/api/files" not in n["embed_text"] for n in leaves)
+
+    doc["nodes"] = [{**n, "embedding": [1.0, 0.0, 0.0] if n["is_leaf"] else None} for n in doc["nodes"]]
     assert client.put("/api/index/documents", json=doc, headers=AUTH).status_code == 200
 
     again = client.post("/api/index/prepare", json=body, headers=AUTH).json()
-    assert again == {"file_path": body["file_path"], "status": "unchanged", "content_hash": r["content_hash"]}
-    changed = client.post("/api/index/prepare", json={**body, "text": text + " Nieuw."}, headers=AUTH).json()
-    assert changed["status"] == "changed"
+    assert again["status"] == "unchanged"
+
+    (docs_root / "handboek" / "brp.md").write_text("Nu staat er iets anders over de BRP. " * 50)
+    assert client.post("/api/index/prepare", json=body, headers=AUTH).json()["status"] == "changed"
+
+    docx = client.post("/api/index/prepare", json={"file_path": "team/renovate.docx"}, headers=AUTH).json()
+    assert "Renovate-proces" in docx["document"]["content"]
+
+    assert client.post("/api/index/prepare", json={"file_path": "../x.md"}, headers=AUTH).status_code == 422
+    assert client.post("/api/index/prepare", json={"file_path": "handboek/notities.xyz"}, headers=AUTH).status_code == 404
 
 
-def test_prepare_extracts_docx(client):
-    import base64
-    import io
-
-    import docx
-
-    document = docx.Document()
-    document.add_paragraph("Het Renovate-proces opent pull requests.")
-    buffer = io.BytesIO()
-    document.save(buffer)
-    body = {"file_path": "repo/docs/renovate.docx", "file_name": "renovate.docx",
-            "data_base64": base64.b64encode(buffer.getvalue()).decode()}
-    r = client.post("/api/index/prepare", json=body, headers=AUTH).json()
-    assert r["status"] == "new"
-    assert "Renovate-proces" in r["document"]["content"]
-
-    bad = client.post("/api/index/prepare", json={**body, "file_name": "x.exe"}, headers=AUTH)
-    assert bad.status_code == 422
+def test_serves_original_documents(client):
+    r = client.get("/api/files/team/renovate.docx")
+    assert r.status_code == 200 and r.headers["content-disposition"].startswith("inline")
+    assert client.get("/api/files/geheim.md").text == "los bestand in de root"
+    assert client.get("/api/files/handboek/notities.xyz").status_code == 404
+    assert client.get("/api/files/..%2F..%2Fetc%2Fpasswd").status_code == 404

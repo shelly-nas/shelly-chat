@@ -120,3 +120,4 @@ jobs:
         LLM_MODEL_NAME=${{ vars.LLM_MODEL_NAME }}
         LLM_SYSTEM_PROMPT=${{ vars.LLM_SYSTEM_PROMPT }}
         NO_ANSWER_RESPONSE=${{ vars.NO_ANSWER_RESPONSE }}
+        DOCUMENTS_DIR=${{ vars.DOCUMENTS_DIR }}

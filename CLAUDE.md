@@ -42,7 +42,7 @@ van de gebruiker, en de browser praat daar zelf mee.
 | Map | Draait op | Rol |
 |---|---|---|
 | `client/` | NAS (nginx) | React + MUI. Roept `/api` op de NAS aan **én** Ollama op `localhost:11434` (`src/lib/ollama.ts`, `src/lib/rag.ts`) |
-| `server/` | NAS | FastAPI zonder AI-modellen: afkortingen (`/api/expand`), vectorzoeken + auto-merge (`/api/retrieve`), gesprekken, index-API (`/api/index/*`, met `INDEX_TOKEN`), en documenten uitpakken + knippen (`/api/index/prepare`, LlamaIndex' tekstsplitter) |
+| `server/` | NAS | FastAPI zonder AI-modellen: afkortingen (`/api/expand`), vectorzoeken + auto-merge (`/api/retrieve`), gesprekken, index-API (`/api/index/*`, met `INDEX_TOKEN`), en documenten lezen, uitpakken + knippen (`/api/index/files`, `/api/index/prepare`, LlamaIndex' tekstsplitter), originelen serveren (`/api/files/…`) |
 | `database/` | NAS | Postgres 16 + **pgvector** (in `database/Dockerfile` gebouwd op `postgres:16-alpine`, zodat uid 70 blijft). CI gebruikt `pgvector/pgvector:0.8.0-pg16`; houd de versies gelijk |
 | `host/` | computer met Ollama | CLI-indexer en RAGAS-evaluatie. Geen Docker, niet in de deploy |
 
@@ -50,12 +50,17 @@ Vraagflow: `POST /api/expand` → Ollama `/api/embed` (model van de index, `GET 
 `POST /api/retrieve` → Ollama `/api/chat` (streaming NDJSON) → `POST /api/conversations`.
 `host/rag.py` is dezelfde flow in Python. Wijzig je de prompt of de stappen, doe dat dan in beide.
 
-Indexflow (scherm Index, `client/src/lib/indexer.ts`): GitLab ophalen in de browser → `POST /api/index/prepare`
-(NAS pakt uit, hasht, knipt; ongewijzigd stopt hier) → Ollama `/api/embed` voor de leaves → `PUT /api/index/documents`.
+Indexflow (scherm Index, `client/src/lib/indexer.ts`): `GET /api/index/files` (NAS somt de documenten in de bronnen op)
+→ `POST /api/index/prepare` (NAS leest, pakt uit, hasht, knipt; ongewijzigd stopt hier) → Ollama `/api/embed` voor
+de leaves → `PUT /api/index/documents`.
 `host/indexing/indexer.py` is dezelfde run als CLI. Wijzig je de regels (reset, verwijderen), doe dat dan in beide.
+
+Documenten staan in de documentenmap op de NAS (`DOCUMENTS_DIR`, alleen-lezen gemount op `/data/documents`).
+Bronnen en `file_path`s zijn altijd relatief aan die map; ga voor elk pad door `app/files.py` (`resolve`), dat
+paden buiten de map weigert.
 
 Regels:
 - Zet niets op de server dat een model laadt (geen torch, sentence-transformers of Ollama-calls). De tekstsplitter van llama-index-core is geen model en mag.
-- GitLab- en index-tokens van gebruikers blijven in de browser (localStorage); sla ze niet op de NAS op.
+- Het index-token van een gebruiker blijft in de browser (localStorage); sla het niet op de NAS op.
 - De `embedding`-kolom heeft geen vaste dimensie. Een ander embeddingmodel betekent een reset door de indexer, geen migratie.
 - Ollama staat alleen origins toe die in `OLLAMA_ORIGINS` staan. Nieuwe hostnamen moeten in de README-instructies.

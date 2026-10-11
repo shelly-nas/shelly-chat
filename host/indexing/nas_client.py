@@ -38,8 +38,12 @@ class NasClient:
         """Chunk configuration, sources and the current index meta."""
         return self._request("GET", "/api/index/settings")
 
-    def prepare_document(self, document: dict) -> dict:
-        return self._request("POST", "/api/index/prepare", json=document)
+    def list_files(self) -> dict:
+        """Documents in the sources (`files`) and sources that could not be read (`missing`)."""
+        return self._request("GET", "/api/index/files")
+
+    def prepare_document(self, file_path: str) -> dict:
+        return self._request("POST", "/api/index/prepare", json={"file_path": file_path})
 
     def put_meta(self, meta: dict, reset: bool) -> dict:
         return self._request("PUT", "/api/index/meta", json={**meta, "reset": reset})

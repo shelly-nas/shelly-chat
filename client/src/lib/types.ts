@@ -73,17 +73,28 @@ export interface ChunkConfig {
   parent_chunk_overlap: number;
 }
 
+/** A folder (indexed recursively) or a single file, relative to the documents folder. */
 export interface IndexSource {
   id: number;
-  url: string;
-  kind: "wiki" | "repo";
+  path: string;
   created_at: string;
+  exists: boolean;
+  documents: number;
 }
 
 export interface IndexSettings {
   meta: IndexStatus["meta"];
   chunk_config: ChunkConfig;
+  /** The documents folder as the NAS sees it, e.g. /volume1/docker/shelly-chat/documents. */
+  documents_dir: string;
+  documents_root_exists: boolean;
   sources: IndexSource[];
+}
+
+export interface BrowseResult {
+  path: string;
+  folders: string[];
+  documents: string[];
 }
 
 export interface PreparedNode {

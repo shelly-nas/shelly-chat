@@ -23,17 +23,15 @@ CREATE TABLE IF NOT EXISTS index_meta (
     updated_at           timestamptz NOT NULL DEFAULT now()
 );
 
--- The GitLab wikis and repositories to index, shared by everyone who indexes
--- from the app. GitLab tokens are never stored here: each user keeps their
--- own in the browser.
+-- What to index: folders (recursively) or single files, as paths relative to
+-- the documents folder on the NAS (DOCUMENTS_DIR). '' is the whole folder.
 CREATE TABLE IF NOT EXISTS index_sources (
     id         bigserial   PRIMARY KEY,
-    url        text        NOT NULL UNIQUE,
-    kind       text        NOT NULL CHECK (kind IN ('wiki', 'repo')),
+    path       text        NOT NULL UNIQUE,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- One row per source document (GitLab wiki page or repository file).
+-- One row per indexed file; file_path is relative to the documents folder.
 -- content_hash drives incremental indexing: an unchanged hash is skipped.
 CREATE TABLE IF NOT EXISTS documents (
     id           bigserial PRIMARY KEY,

@@ -31,6 +31,11 @@ services:
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemma4:latest}
       LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-You are a helpful assistant.}
       NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-I could not find this in the provided sources.}
+      DOCUMENTS_DIR: ${DOCUMENTS_DIR:-./documents}
+    volumes:
+      # The documents to index, read-only. Put files in ./documents (not in
+      # git), or point DOCUMENTS_DIR at a folder with real documents.
+      - ${DOCUMENTS_DIR:-./documents}:/data/documents:ro
     depends_on:
       db:
         condition: service_healthy

@@ -1,7 +1,10 @@
-// Index: which GitLab sources the chat searches, and indexing them from this
-// browser. The work happens here because this machine has Ollama (and the VPN
-// to GitLab); the NAS only splits and stores.
+// Index: which folders of the documents folder on the NAS the chat searches,
+// and indexing them from this browser. The NAS reads and splits the files;
+// this browser embeds them, because this machine has Ollama.
 import AddIcon from "@mui/icons-material/Add";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -23,6 +26,9 @@ import {
   IconButton,
   InputLabel,
   LinearProgress,
+  List,
+  ListItemButton,
+  ListItemText,
   MenuItem,
   Select,
   Skeleton,
@@ -37,7 +43,7 @@ import { useAppState } from "../appState";
 import { ApiError, api } from "../lib/api";
 import { resetReason, runIndex, type LogLevel, type RunCounts, type RunProgress } from "../lib/indexer";
 import { hasModel } from "../lib/ollama";
-import type { IndexSettings } from "../lib/types";
+import type { BrowseResult, IndexSettings } from "../lib/types";
 
 const DEFAULT_EMBED_MODEL = "qwen3-embedding:latest";
 
@@ -94,7 +100,8 @@ export default function IndexPage() {
   const [confirmFull, setConfirmFull] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const [accessFirst] = useState(() => !settings.indexToken || !settings.gitlabToken);
+  const [accessFirst] = useState(() => !settings.indexToken);
+  const [browsing, setBrowsing] = useState<BrowseResult | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -141,8 +148,8 @@ export default function IndexPage() {
   if (ollama.status !== "ok") blockers.push("Ollama is niet bereikbaar vanuit deze browser.");
   else if (!embedInstalled) blockers.push(`${embedModel} ontbreekt in Ollama: ollama pull ${embedModel}`);
   if (tokenState !== "ok") blockers.push("Vul het index-token van de NAS in.");
-  if (!settings.gitlabToken) blockers.push("Vul je GitLab-token in.");
-  if (data && data.sources.length === 0) blockers.push("Voeg minstens één bron toe.");
+  if (data && !data.documents_root_exists) blockers.push("De documentenmap is niet gekoppeld aan de server (zie DOCUMENTS_DIR).");
+  else if (data && data.sources.length === 0) blockers.push("Voeg minstens één bron toe.");
 
   const addSource = async () => {
     setAdding(true);
@@ -152,11 +159,7 @@ export default function IndexPage() {
       setNewSource("");
       await load();
     } catch (err) {
-      setSourceError(
-        err instanceof ApiError && err.status === 422
-          ? "Vul een volledige GitLab-URL in, zoals https://gitlab.example.com/groep/project/-/wikis."
-          : (err as Error).message,
-      );
+      setSourceError(err instanceof ApiError ? err.message : `Toevoegen mislukt: ${(err as Error).message}`);
     } finally {
       setAdding(false);
     }
@@ -185,7 +188,6 @@ export default function IndexPage() {
         ollamaUrl: settings.ollamaUrl,
         embedModel,
         indexToken: settings.indexToken,
-        gitlabToken: settings.gitlabToken,
         full,
         signal: controller.signal,
         log: (level, message) => setLog((prev) => [...prev.slice(-299), { level, message, at: new Date() }]),
@@ -213,10 +215,19 @@ export default function IndexPage() {
     }
   };
 
+  // The folder browser under "Nieuwe bron": shows what is in the folder typed so far.
+  useEffect(() => {
+    const folder = newSource.includes("/") ? newSource.slice(0, newSource.lastIndexOf("/")) : "";
+    const t = setTimeout(() => {
+      api.browse(folder).then(setBrowsing).catch(() => {});
+    }, 200);
+    return () => clearTimeout(t);
+  }, [newSource]);
+
   const accessCard = (
         <Section
           title="Toegang"
-          subtitle="Beide tokens worden alleen in deze browser bewaard, nooit op de NAS."
+          subtitle="Het token wordt alleen in deze browser bewaard, nooit op de NAS."
         >
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 6 }}>
             <TextField
@@ -237,15 +248,6 @@ export default function IndexPage() {
               }
               fullWidth
             />
-            <TextField
-              label="GitLab-token"
-              type="password"
-              autoComplete="off"
-              value={settings.gitlabToken}
-              onChange={(e) => updateSettings({ gitlabToken: e.target.value.trim() })}
-              helperText="Personal Access Token met read_api. Je browser haalt hiermee de documenten op."
-              fullWidth
-            />
           </Box>
         </Section>
   );
@@ -258,8 +260,8 @@ export default function IndexPage() {
         <Box>
           <Typography variant="h2" component="h1">Index</Typography>
           <Typography variant="body2" sx={{ mt: 2 }}>
-            De documenten uit GitLab die de chat doorzoekt. Indexeren gebeurt in deze browser met je eigen
-            Ollama; de NAS knipt en bewaart.
+            De documenten op de NAS die de chat doorzoekt. De NAS leest en knipt ze; deze browser maakt de
+            embeddings met je eigen Ollama.
           </Typography>
         </Box>
 
@@ -346,7 +348,7 @@ export default function IndexPage() {
             <Box>
               <Stack direction="row" justifyContent="space-between" sx={{ mb: 2 }}>
                 <Typography variant="body2" sx={{ color: "text.primary" }} noWrap>
-                  {running ? (progress?.current ? `Bezig met ${progress.current}…` : "Bronnen ophalen uit GitLab…") : "Klaar"}
+                  {running ? (progress?.current ? `Bezig met ${progress.current}…` : "Documenten zoeken op de NAS…") : "Klaar"}
                 </Typography>
                 <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", flexShrink: 0, ml: 4 }}>
                   {progress ? `${progress.done} / ${progress.total}` : ""}
@@ -414,23 +416,41 @@ export default function IndexPage() {
         {/* Sources */}
         <Section
           title="Bronnen"
-          subtitle="GitLab-wiki's en -repositories. Gedeeld: iedereen die indexeert gebruikt deze lijst."
+          subtitle="Mappen (met alles erin) of losse bestanden uit de documentenmap op de NAS. Gedeeld: iedereen die indexeert gebruikt deze lijst."
         >
+          {data && (
+            <Alert severity={data.documents_root_exists ? "info" : "error"} icon={false}>
+              <Typography variant="body2" sx={{ color: "text.primary" }}>
+                Paden zijn relatief aan de documentenmap
+                {data.documents_dir ? <> <strong>{data.documents_dir}</strong></> : null}. Een bron <code>handboek</code>{" "}
+                is dus {data.documents_dir ? <code>{`${data.documents_dir.replace(/\/+$/, "")}/handboek`}</code> : "de map handboek daarin"}.
+                Ondersteund: .md, .adoc, .txt, .pdf, .docx en .doc.
+              </Typography>
+              {!data.documents_root_exists && (
+                <Typography variant="body2" sx={{ mt: 2, color: "text.primary" }}>
+                  De server ziet deze map niet. Controleer DOCUMENTS_DIR en of de map op de NAS bestaat.
+                </Typography>
+              )}
+            </Alert>
+          )}
           {data === null ? (
             <Skeleton variant="rounded" height={80} />
           ) : data.sources.length === 0 ? (
-            <Typography variant="body2">
-              Nog geen bronnen. Voeg een wiki (…/-/wikis) of een repository toe; een map in een repository kan ook
-              (…/-/tree/main/docs).
-            </Typography>
+            <Typography variant="body2">Nog geen bronnen. Kies hieronder een map of bestand.</Typography>
           ) : (
             <Stack spacing={2} component="ul" sx={{ m: 0, p: 0, listStyle: "none" }}>
               {data.sources.map((s) => (
                 <Stack key={s.id} component="li" direction="row" alignItems="center" spacing={3} sx={{ minHeight: 44 }}>
-                  <Chip size="small" label={s.kind === "wiki" ? "Wiki" : "Repository"} sx={{ bgcolor: "action.hover", color: "text.secondary", flexShrink: 0 }} />
-                  <Typography variant="body2" sx={{ flex: 1, color: "text.primary", overflowWrap: "anywhere" }}>{s.url}</Typography>
+                  <Typography variant="body2" sx={{ flex: 1, color: "text.primary", overflowWrap: "anywhere", fontFamily: "ui-monospace, Menlo, monospace" }}>
+                    {s.path || "(hele documentenmap)"}
+                  </Typography>
+                  {s.exists ? (
+                    <Chip size="small" label={`${s.documents} ${s.documents === 1 ? "document" : "documenten"}`} sx={{ bgcolor: "action.hover", color: "text.secondary" }} />
+                  ) : (
+                    <Chip size="small" color="error" variant="outlined" icon={<ErrorOutlineIcon />} label="Bestaat niet" />
+                  )}
                   <IconButton
-                    aria-label={`Bron ${s.url} verwijderen`}
+                    aria-label={`Bron ${s.path || "documentenmap"} verwijderen`}
                     disabled={running || tokenState !== "ok"}
                     onClick={() => removeSource(s.id)}
                   >
@@ -450,24 +470,54 @@ export default function IndexPage() {
           >
             <TextField
               label="Nieuwe bron"
-              placeholder="https://gitlab.example.com/groep/project/-/wikis"
+              placeholder="handboek of team/renovate.pdf (leeg = hele documentenmap)"
               value={newSource}
               onChange={(e) => setNewSource(e.target.value)}
               error={sourceError !== null}
-              helperText={sourceError ?? (tokenState === "ok" ? " " : "Bronnen wijzigen kan met een geldig index-token.")}
+              helperText={sourceError ?? (tokenState === "ok" ? "Kies hieronder, of typ een pad." : "Bronnen wijzigen kan met een geldig index-token.")}
               disabled={tokenState !== "ok" || running}
               fullWidth
+              inputProps={{ style: { fontFamily: "ui-monospace, Menlo, monospace" } }}
             />
             <Button
               type="submit"
               variant="outlined"
               startIcon={<AddIcon />}
-              disabled={!newSource.trim() || tokenState !== "ok" || adding || running}
+              disabled={tokenState !== "ok" || adding || running}
               sx={{ mt: "26px", flexShrink: 0 }}
             >
               {adding ? "Toevoegen…" : "Toevoegen"}
             </Button>
           </Box>
+          {browsing && tokenState === "ok" && !running && (
+            <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, maxHeight: 240, overflowY: "auto" }}>
+              <List dense disablePadding aria-label="Inhoud van de documentenmap">
+                {browsing.path && (
+                  <ListItemButton
+                    onClick={() => setNewSource(browsing.path.includes("/") ? browsing.path.slice(0, browsing.path.lastIndexOf("/") + 1) : "")}
+                  >
+                    <ArrowUpwardIcon fontSize="small" aria-hidden />
+                    <ListItemText primary="Omhoog" primaryTypographyProps={{ fontSize: 14 }} />
+                  </ListItemButton>
+                )}
+                {browsing.folders.map((f) => (
+                  <ListItemButton key={f} onClick={() => setNewSource(`${f}/`)}>
+                    <FolderOutlinedIcon fontSize="small" aria-hidden />
+                    <ListItemText primary={f.split("/").pop()} primaryTypographyProps={{ fontSize: 14 }} />
+                  </ListItemButton>
+                ))}
+                {browsing.documents.map((d) => (
+                  <ListItemButton key={d} onClick={() => setNewSource(d)}>
+                    <DescriptionOutlinedIcon fontSize="small" aria-hidden />
+                    <ListItemText primary={d.split("/").pop()} primaryTypographyProps={{ fontSize: 14 }} />
+                  </ListItemButton>
+                ))}
+                {browsing.folders.length + browsing.documents.length === 0 && (
+                  <Typography variant="body2" sx={{ p: 4 }}>Deze map is leeg.</Typography>
+                )}
+              </List>
+            </Box>
+          )}
         </Section>
 
         {!accessFirst && accessCard}

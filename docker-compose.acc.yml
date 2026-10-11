@@ -57,6 +57,12 @@ services:
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemma4:latest}
       LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-You are a helpful assistant.}
       NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-I could not find this in the provided sources.}
+      # Shown in the app: index sources are paths relative to this folder.
+      DOCUMENTS_DIR: ${DOCUMENTS_DIR:-/volume1/docker/shelly-chat/documents}
+    volumes:
+      # The documents to index, read-only. Acc and production read the same
+      # folder; acc only ever reads it, its index is rebuilt on every deploy.
+      - ${DOCUMENTS_DIR:-/volume1/docker/shelly-chat/documents}:/data/documents:ro
     depends_on:
       db:
         condition: service_healthy
