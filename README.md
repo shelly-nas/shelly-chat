@@ -14,7 +14,7 @@ externe AI-dienst, en de NAS hoeft geen GPU te hebben.
 ```mermaid
 flowchart LR
     subgraph PC["Jouw computer"]
-        B["Browser<br/>(chat + Index-scherm)"]
+        B["Browser<br/>(chat + Indexen-scherm)"]
         O["Ollama :11434<br/>qwen3-embedding · gemma4"]
     end
     subgraph NAS["Shelly NAS (Docker, achter Traefik)"]
@@ -27,7 +27,7 @@ flowchart LR
     B -- "pagina" --> C
     B -- "/api: zoeken, gesprekken" --> S
     B -- "embed + chat (rechtstreeks)" --> O
-    B -- "/api/index: lezen, knippen, opslaan (INDEX_TOKEN)" --> S
+    B -- "/api/index(es): lezen, knippen, opslaan (INDEX_TOKEN)" --> S
     S --- D
     S --- F
 ```
@@ -45,20 +45,42 @@ Waar wat gebeurt bij een vraag:
 De **NAS draait geen enkel model**: geen LLM, geen embeddings en geen reranker. Een NAS zonder GPU is
 genoeg.
 
-**Indexeren** gaat via het scherm **Index** in de app, ook vanuit de browser:
+### Indexen
+
+Je kunt meerdere **indexen** maken, elk met een eigen naam, bijvoorbeeld "Mijn BV" of "Handboek". Een
+index heeft:
+- **bronnen**: mappen of bestanden uit de documentenmap, die je toevoegt en verwijdert;
+- **ignore-patronen**: regels zoals in een `.gitignore` (`archief/`, `*.tmp`, `!belangrijk.pdf`). Ze
+  worden alleen op de NAS bewaard; er komt geen `.gitignore`-bestand in de documentenmap.
+
+Bij een **nieuw gesprek** kies je bovenaan welke index het doorzoekt. Die keuze geldt voor alle vragen
+in dat gesprek en ligt vast zodra het gesprek begonnen is. Verwijder je een index, dan blijven de
+gesprekken leesbaar maar kun je er geen vragen meer in stellen.
+
+Het embeddingmodel en de chunkgroottes gelden voor alle indexen samen. Een document dat in meerdere
+indexen zit, wordt één keer geëmbed en opgeslagen.
+
+**Indexeren** gaat via het scherm **Indexen** in de app, ook vanuit de browser:
 
 | Stap | Waar |
 |---|---|
-| Bronnen beheren: mappen of bestanden in de documentenmap | NAS, gedeeld voor iedereen |
+| Documenten in de bronnen opsommen, ignore-patronen toepassen | NAS (`GET /api/indexes/{id}/files`) |
 | Documenten lezen, tekst uit PDF/DOCX halen, hashen en in chunks knippen | NAS (`POST /api/index/prepare`) |
 | De kleine chunks embedden | browser → Ollama op jouw computer |
 | Opslaan, afkortingen eruit halen | NAS (`PUT /api/index/documents`) |
+| Documenten die niet meer in de bronnen staan uit de index halen | NAS (`POST /api/indexes/{id}/prune`) |
 
-Ongewijzigde documenten worden overgeslagen. Een ander embeddingmodel of andere chunkgroottes leegt de
-index en bouwt hem opnieuw op. Documenten die uit de bronnen verdwenen zijn, worden verwijderd, maar
-alleen als elke bron gelezen kon worden. Een map die (even) ontbreekt, leegt de index dus nooit. Het
-index-token staat alleen in je browser, nooit op de NAS. Voor scripts of een geplande taak doet de CLI in
-[host/](host/README.md) precies hetzelfde.
+Ongewijzigde documenten worden overgeslagen. Een ander embeddingmodel of andere chunkgroottes leegt
+alle indexen en bouwt ze opnieuw op. Documenten die uit de bronnen verdwenen zijn (of nu genegeerd
+worden), gaan uit de index, maar alleen als elke bron gelezen kon worden. Een map die (even) ontbreekt,
+leegt de index dus nooit. Het index-token staat alleen in je browser, nooit op de NAS. Voor scripts of
+een geplande taak doet de CLI in [host/](host/README.md) precies hetzelfde.
+
+### Systeemprompt
+
+De systeemprompt pas je aan onder **Instellingen → Systeemprompt**. Hij staat op de NAS, geldt voor
+iedereen en voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste versie. `{today}` wordt
+de datum. **Standaard herstellen** zet hem terug op `LLM_SYSTEM_PROMPT` (of de ingebouwde tekst).
 
 ### De documentenmap
 
@@ -67,7 +89,7 @@ De documenten staan in één map op de NAS, `DOCUMENTS_DIR` (standaard
 `/data/documents`. **Een bron is een pad relatief aan die map**: `handboek` is
 `<DOCUMENTS_DIR>/handboek` met alles erin, `team/renovate.pdf` is één bestand, en leeg is de hele map.
 Een absoluut pad werkt niet. De server ziet alleen wat in de documentenmap staat, en weigert paden met
-`..` of symlinks die eruit wijzen. Het Index-scherm toont de map en laat je erdoorheen bladeren. Bij een
+`..` of symlinks die eruit wijzen. Bij de bronnen van een index kun je door de map bladeren. Bij een
 bron in de chat opent **Openen** het originele document via `GET /api/files/<pad>`.
 
 Acc en productie lezen dezelfde map. Een andere map, bijvoorbeeld een gedeelde map als
@@ -120,7 +142,7 @@ cp .env.example .env    # vul DB_PASSWORD in
 docker compose up --build
 ```
 
-Zet een paar documenten in `./documents`, open http://localhost:5173 en ga naar **Index**. Lokaal is het index-token leeg, tenzij je `INDEX_TOKEN`
+Zet een paar documenten in `./documents`, open http://localhost:5173 en ga naar **Indexen**. Lokaal is het index-token leeg, tenzij je `INDEX_TOKEN`
 in `.env` zet; vul dan dezelfde waarde in.
 
 Frontend ontwikkelen met hot reload, tegen de API uit compose:
@@ -140,7 +162,7 @@ cd host && pip install -r requirements.txt pytest && pytest
 ## Structuur
 
 ```
-client/      React + Vite + MUI (huisstijl): chat en Index-scherm;
+client/      React + Vite + MUI (huisstijl): chat en Indexen-scherm;
              praat met de NAS en met Ollama                                     → NAS
 server/      FastAPI: zoeken, afkortingen, gesprekken, documenten lezen,
              knippen en opslaan; geen AI-modellen                               → NAS
@@ -157,7 +179,7 @@ host/        CLI-indexer en evaluatie, draaien naast Ollama                     
 | `INDEX_TOKEN` | GitHub secret | token om de index en de bronnen te wijzigen, verplicht op acc en prod (`openssl rand -hex 32`) |
 | `DOCUMENTS_DIR` | GitHub variable (optioneel) | documentenmap op de NAS, standaard `/volume1/docker/shelly-chat/documents` |
 | `LLM_MODEL_NAME` | GitHub variable (optioneel) | standaard chatmodel, standaard `gemma4:latest` |
-| `LLM_SYSTEM_PROMPT` | GitHub variable (optioneel) | systeemprompt; `{today}` wordt de datum |
+| `LLM_SYSTEM_PROMPT` | GitHub variable (optioneel) | standaard-systeemprompt; aan te passen in de app onder **Instellingen**. `{today}` wordt de datum |
 | `NO_ANSWER_RESPONSE` | GitHub variable (optioneel) | antwoord als er geen bronnen zijn |
 
 Verder: `PARENT_CHUNK_SIZE` (1500), `CHILD_CHUNK_SIZE` (een kwart daarvan), `PARENT_CHUNK_OVERLAP` (300),
@@ -176,6 +198,7 @@ mergen van de release-PR van release-please deployt productie. Eenmalig:
 2. *Settings → Actions → General*: "Allow GitHub Actions to create and approve pull requests" aanzetten.
 3. Op de NAS: `mkdir -p /volume1/docker/shelly-chat/data/postgres && sudo chown -R 70:70 /volume1/docker/shelly-chat/data/postgres`,
    en `mkdir -p /volume1/docker/shelly-chat/documents` (of de map uit `DOCUMENTS_DIR`). Zet daar de documenten in.
-4. Na de eerste deploy: open **Index**, vul het `INDEX_TOKEN` in, voeg de bronnen toe en klik op
-   **Indexeren**. De database op acc wordt bij elke deploy opnieuw opgebouwd. Op acc staat de hele
-   documentenmap daarom al als bron klaar (demodata); je hoeft daar alleen opnieuw te indexeren.
+4. Na de eerste deploy: open **Indexen**, vul het `INDEX_TOKEN` in, maak een index, voeg de bronnen
+   toe en klik op **Index bijwerken**. De database op acc wordt bij elke deploy opnieuw opgebouwd. Op
+   acc staat daarom al een index "Alle documenten" klaar met de hele documentenmap als bron (demodata);
+   je hoeft daar alleen op **Alle indexen bijwerken** te klikken.

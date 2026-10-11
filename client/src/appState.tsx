@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api } from "./lib/api";
 import { listModels, type OllamaModel } from "./lib/ollama";
 import { useSettings, type Settings } from "./lib/settings";
-import type { ConversationSummary, IndexStatus, ServerConfig } from "./lib/types";
+import type { ConversationSummary, DocIndex, IndexStatus, ServerConfig } from "./lib/types";
 
 export type OllamaState =
   | { status: "checking" }
@@ -23,6 +23,9 @@ interface AppState {
   llmModel: string;
   conversations: ConversationSummary[] | null;
   conversationsError: string | null;
+  /** The named indexes; null while loading. */
+  indexes: DocIndex[] | null;
+  refreshIndexes: () => Promise<void>;
   refreshConversations: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   checkOllama: () => Promise<void>;
@@ -47,6 +50,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
   const [conversationsError, setConversationsError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [indexes, setIndexes] = useState<DocIndex[] | null>(null);
+
+  const refreshIndexes = useCallback(async () => {
+    try {
+      setIndexes(await api.indexes());
+    } catch {
+      setIndexes((prev) => prev ?? []);
+    }
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -80,7 +92,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshStatus();
     refreshConversations();
-  }, [refreshStatus, refreshConversations]);
+    refreshIndexes();
+  }, [refreshStatus, refreshConversations, refreshIndexes]);
 
   useEffect(() => {
     checkOllama();
@@ -101,6 +114,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         conversations,
         conversationsError,
         refreshConversations,
+        indexes,
+        refreshIndexes,
         refreshStatus,
         checkOllama,
         settingsOpen,

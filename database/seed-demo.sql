@@ -4,9 +4,12 @@
 -- There is no demo index: embeddings depend on the model on the machine that
 -- runs Ollama. Click Indexeren on the Index screen to fill it.
 
--- Acc rebuilds its database on every deploy: start with the whole documents
--- folder as a source, so indexing is one click there.
-INSERT INTO index_sources (path) VALUES ('') ON CONFLICT (path) DO NOTHING;
+-- Acc rebuilds its database on every deploy: start with one index over the
+-- whole documents folder, so indexing is one click there.
+INSERT INTO indexes (name) VALUES ('Alle documenten') ON CONFLICT (name) DO NOTHING;
+INSERT INTO index_sources (index_id, path)
+SELECT id, '' FROM indexes WHERE name = 'Alle documenten'
+ON CONFLICT (index_id, path) DO NOTHING;
 
 DO $$
 DECLARE
@@ -16,8 +19,9 @@ BEGIN
         RETURN;
     END IF;
 
-    INSERT INTO conversations (id, title, created_at, updated_at)
-    VALUES (demo_id, 'Voorbeeldgesprek', now() - interval '1 hour', now() - interval '1 hour');
+    INSERT INTO conversations (id, title, index_id, created_at, updated_at)
+    SELECT demo_id, 'Voorbeeldgesprek', id, now() - interval '1 hour', now() - interval '1 hour'
+    FROM indexes WHERE name = 'Alle documenten';
 
     INSERT INTO messages (conversation_id, role, content, effective_query, created_at)
     VALUES (demo_id, 'user', 'Hoe werkt deze chat?', 'Hoe werkt deze chat?', now() - interval '1 hour');

@@ -1,11 +1,16 @@
-"""The document index: files from the documents folder on the NAS.
+"""The shared document store behind all indexes, and its global settings.
 
-Indexing is driven from where Ollama runs - the Index screen in the browser,
-or the CLI in host/. Either one asks for the list of files in the sources
-(GET /api/index/files), has each one read, hashed and split here (POST
-/api/index/prepare), embeds the leaf chunks with its own Ollama, and stores
-the result with PUT /api/index/documents. Everything but the GET summaries
-needs the INDEX_TOKEN as a bearer token.
+Documents come from the documents folder on the NAS. Indexing is driven from
+where Ollama runs - the Index screen in the browser, or the CLI in host/ - one
+named index at a time: list the index's files (GET /api/indexes/{id}/files),
+have each one read, hashed and split here (POST /api/index/prepare), embed the
+leaf chunks with Ollama, store them (PUT /api/index/documents), and finally
+drop what left the index (POST /api/indexes/{id}/prune).
+
+A document lives here once, however many indexes it is in; index_documents
+says which. The embedding model and chunk configuration (index_meta) are
+shared by all indexes. Everything but the GET summaries needs the INDEX_TOKEN
+as a bearer token.
 
 Each document is replaced as a whole in one transaction, so a search never
 sees half a document and an interrupted run simply resumes on the next one.
@@ -47,34 +52,22 @@ def index_status():
             " (SELECT count(*) FROM documents) AS documents,"
             " (SELECT count(*) FROM chunks) AS chunks,"
             " (SELECT count(*) FROM abbreviations) AS abbreviations,"
+            " (SELECT count(*) FROM indexes) AS indexes,"
             " (SELECT max(indexed_at) FROM documents) AS last_indexed_at"
         ).fetchone()
     return {"meta": meta, **counts}
 
 
-def _source_info(row: dict) -> dict:
-    """A source with whether it exists and how many documents it holds now."""
-    try:
-        count, exists = len(files.list_documents(row["path"])), True
-    except files.PathError:
-        count, exists = 0, False
-    return {**row, "exists": exists, "documents": count}
-
-
 @router.get("/settings")
 def index_settings():
-    """What an indexing run needs to know up front: chunking and sources."""
+    """What an indexing run needs to know up front: model, chunking, the folder."""
     with db.connection() as conn:
         meta = conn.execute(f"SELECT {_META_COLUMNS} FROM index_meta").fetchone()
-        sources = conn.execute(
-            "SELECT id, path, created_at FROM index_sources ORDER BY path"
-        ).fetchall()
     return {
         "meta": meta,
         "chunk_config": documents.chunk_config(),
         "documents_dir": config.DOCUMENTS_DIR,
         "documents_root_exists": files.root().is_dir(),
-        "sources": [_source_info(s) for s in sources],
     }
 
 
@@ -91,56 +84,6 @@ def browse(path: str = ""):
 def check_token():
     """Lets the Index screen tell whether the token it has is the right one."""
     return {"ok": True}
-
-
-class NewSource(BaseModel):
-    # Relative to the documents folder; '' is the whole folder.
-    path: str = Field(max_length=500)
-
-
-@router.post("/sources", status_code=201, dependencies=[Depends(require_token)])
-def add_source(request: NewSource):
-    try:
-        path = files.normalize(request.path)
-        files.list_documents(path)
-    except files.PathError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    with db.connection() as conn:
-        row = conn.execute(
-            "INSERT INTO index_sources (path) VALUES (%s)"
-            " ON CONFLICT (path) DO NOTHING RETURNING id, path, created_at",
-            (path,),
-        ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=409, detail="Deze bron staat er al.")
-    return _source_info(row)
-
-
-@router.get("/files", dependencies=[Depends(require_token)])
-def list_files():
-    """Every document in the sources, plus the sources that could not be read.
-
-    The caller only removes documents that are gone when `missing` is empty:
-    a folder that is (temporarily) unavailable must not empty the index.
-    """
-    with db.connection() as conn:
-        sources = [r["path"] for r in conn.execute("SELECT path FROM index_sources ORDER BY path")]
-    found: dict[str, None] = {}
-    missing = []
-    for source in sources:
-        try:
-            for path in files.list_documents(source):
-                found[path] = None
-        except files.PathError:
-            missing.append(source)
-    return {"files": list(found), "missing": missing}
-
-
-@router.delete("/sources/{source_id}", status_code=204, dependencies=[Depends(require_token)])
-def delete_source(source_id: int):
-    with db.connection() as conn:
-        conn.execute("DELETE FROM index_sources WHERE id = %s", (source_id,))
-    return Response(status_code=204)
 
 
 class IndexMeta(BaseModel):
@@ -164,7 +107,8 @@ def put_meta(request: IndexMeta):
                 detail="De indexconfiguratie verschilt; stuur reset=true om opnieuw te beginnen.",
             )
         if request.reset:
-            conn.execute("TRUNCATE documents, chunks, abbreviations")
+            # Every index loses its documents; the indexes and their sources stay.
+            conn.execute("TRUNCATE documents, chunks, abbreviations, index_documents")
         meta = conn.execute(
             "INSERT INTO index_meta (embed_model, embed_dimensions, parent_chunk_size,"
             " child_chunk_size, parent_chunk_overlap)"
@@ -194,6 +138,17 @@ def list_documents():
 
 class PrepareRequest(BaseModel):
     file_path: str = Field(min_length=1)
+    # The index being indexed: an unchanged document joins it right away.
+    index_id: int | None = None
+
+
+def add_to_index(conn, index_id: int | None, document_id: int) -> None:
+    if index_id is not None:
+        conn.execute(
+            "INSERT INTO index_documents (index_id, document_id) VALUES (%s, %s)"
+            " ON CONFLICT DO NOTHING",
+            (index_id, document_id),
+        )
 
 
 @router.post("/prepare", dependencies=[Depends(require_token)])
@@ -216,10 +171,12 @@ def prepare_document(request: PrepareRequest):
     hash_ = documents.content_hash(text)
     with db.connection() as conn:
         stored = conn.execute(
-            "SELECT content_hash FROM documents WHERE file_path = %s", (file_path,)
+            "SELECT id, content_hash FROM documents WHERE file_path = %s", (file_path,)
         ).fetchone()
-    if stored and stored["content_hash"] == hash_:
-        return {"file_path": file_path, "status": "unchanged", "content_hash": hash_}
+        if stored and stored["content_hash"] == hash_:
+            # Already split and embedded, perhaps for another index.
+            add_to_index(conn, request.index_id, stored["id"])
+            return {"file_path": file_path, "status": "unchanged", "content_hash": hash_}
 
     file_name = path.name
     # The app opens the original through GET /api/files/<path>.
@@ -257,6 +214,8 @@ class Node(BaseModel):
 
 
 class Document(BaseModel):
+    # The index being indexed; the document joins it in the same transaction.
+    index_id: int | None = None
     file_path: str = Field(min_length=1)
     file_name: str = ""
     source_url: str = ""
@@ -302,6 +261,15 @@ def put_document(document: Document):
                     ),
                 )
 
+        # Replacing the document must not drop it from the other indexes it is in.
+        member_of = [
+            r["index_id"]
+            for r in conn.execute(
+                "SELECT x.index_id FROM index_documents x JOIN documents d ON d.id = x.document_id"
+                " WHERE d.file_path = %s",
+                (document.file_path,),
+            )
+        ]
         conn.execute("DELETE FROM documents WHERE file_path = %s", (document.file_path,))
         document_id = conn.execute(
             "INSERT INTO documents (file_path, file_name, source_url, content_hash, content, metadata)"
@@ -334,6 +302,9 @@ def put_document(document: Document):
                     for n in document.nodes
                 ],
             )
+
+        for index_id in {*member_of, document.index_id} - {None}:
+            add_to_index(conn, index_id, document_id)
 
         abbreviation_count = _store_abbreviations(
             conn, document_id, document.content, document.source_url, document.file_name

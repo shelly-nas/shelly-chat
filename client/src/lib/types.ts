@@ -34,6 +34,9 @@ export interface ChatMessage {
 export interface ConversationSummary {
   id: string;
   title: string;
+  /** Fixed when the conversation starts; null once the index is deleted. */
+  index_id: number | null;
+  index_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -65,6 +68,7 @@ export interface IndexStatus {
   chunks: number;
   abbreviations: number;
   last_indexed_at: string | null;
+  indexes: number;
 }
 
 export interface ChunkConfig {
@@ -79,16 +83,37 @@ export interface IndexSource {
   path: string;
   created_at: string;
   exists: boolean;
+  /** Documents in it now, after the index's ignore patterns. */
   documents: number;
 }
 
+/** A named index ("Mijn BV"): what a conversation searches. */
+export interface DocIndex {
+  id: number;
+  name: string;
+  /** gitignore syntax, against paths relative to the documents folder. */
+  ignore_patterns: string;
+  sources: IndexSource[];
+  /** Indexed documents in it. */
+  documents: number;
+  last_indexed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Shared by all indexes. */
 export interface IndexSettings {
   meta: IndexStatus["meta"];
   chunk_config: ChunkConfig;
   /** The documents folder as the NAS sees it, e.g. /volume1/docker/shelly-chat/documents. */
   documents_dir: string;
   documents_root_exists: boolean;
-  sources: IndexSource[];
+}
+
+export interface SharedSettings {
+  system_prompt: string;
+  system_prompt_is_default: boolean;
+  default_system_prompt: string;
 }
 
 export interface BrowseResult {

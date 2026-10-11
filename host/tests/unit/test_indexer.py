@@ -1,32 +1,39 @@
 """The CLI indexer against fakes of the NAS and Ollama."""
 
+import pytest
+
 from indexing.indexer import IndexingConfig, reset_reason, run_pipeline
 
 CHUNKS = {"parent_chunk_size": 1500, "child_chunk_size": 375, "parent_chunk_overlap": 300}
+META = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS}
 
 
 class FakeNas:
-    def __init__(self, meta=None, indexed=None, files=(), missing=()):
+    def __init__(self, indexes, meta=META):
+        # indexes: {name: {"files": [...], "missing": [...]}}
+        self.indexes_ = indexes
         self.meta = meta
-        self.indexed = indexed or {}
-        self.files = list(files)
-        self.missing = list(missing)
         self.calls = []
 
-    def settings(self):
-        return {"meta": self.meta, "chunk_config": CHUNKS, "sources": [{"path": "handboek"}]}
+    def indexes(self):
+        return [{"id": n, "name": name} for n, name in enumerate(self.indexes_, 1)]
 
-    def list_files(self):
-        return {"files": self.files, "missing": self.missing}
+    def _name(self, index_id):
+        return list(self.indexes_)[index_id - 1]
+
+    def settings(self):
+        return {"meta": self.meta, "chunk_config": CHUNKS}
 
     def put_meta(self, meta, reset):
         self.calls.append(("meta", meta["embed_model"], reset))
 
-    def indexed_hashes(self):
-        return self.indexed
+    def index_files(self, index_id):
+        spec = self.indexes_[self._name(index_id)]
+        return {"files": spec["files"], "missing": spec.get("missing", [])}
 
-    def prepare_document(self, file_path):
-        if file_path == "a":
+    def prepare_document(self, file_path, index_id):
+        self.calls.append(("prepare", file_path, index_id))
+        if file_path.startswith("same"):
             return {"status": "unchanged"}
         nodes = [
             {"id": "p", "parent_id": None, "is_leaf": False, "embed_text": None},
@@ -35,11 +42,12 @@ class FakeNas:
         return {"status": "new", "document": {"file_path": file_path, "nodes": nodes}}
 
     def put_document(self, document):
-        self.calls.append(("put", document["file_path"], document["nodes"]))
+        self.calls.append(("put", document["file_path"], document["index_id"], document["nodes"]))
         return {"chunks": len(document["nodes"]), "abbreviations": 0}
 
-    def delete_document(self, path):
-        self.calls.append(("delete", path))
+    def prune_index(self, index_id, keep):
+        self.calls.append(("prune", index_id, keep))
+        return {"removed": 1, "deleted_documents": 0}
 
 
 class FakeEmbedder:
@@ -53,32 +61,39 @@ class FakeEmbedder:
         pass
 
 
-def _run(monkeypatch, nas):
+def _run(monkeypatch, nas, **kwargs):
     monkeypatch.setattr(IndexingConfig, "nas", lambda self: nas)
     monkeypatch.setattr(IndexingConfig, "embedder", lambda self: FakeEmbedder())
-    return run_pipeline(IndexingConfig())
+    return run_pipeline(IndexingConfig(), **kwargs)
 
 
-def test_embeds_new_skips_unchanged_and_removes_gone(monkeypatch):
-    meta = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS}
-    nas = FakeNas(meta=meta, indexed={"a": "h", "gone": "h"}, files=["a", "b"])
+def test_indexes_every_index_and_prunes(monkeypatch):
+    nas = FakeNas({"Mijn BV": {"files": ["same.md", "bv/new.md"]}, "Handboek": {"files": ["hb/a.md"]}})
     counts = _run(monkeypatch, nas)
 
-    assert counts == {"new": 1, "changed": 0, "unchanged": 1, "deleted": 1, "failed": 0}
+    assert counts == {"new": 2, "changed": 0, "unchanged": 1, "deleted": 2, "failed": 0}
     assert ("meta", "qwen3-embedding:latest", False) in nas.calls
-    put = next(c for c in nas.calls if c[0] == "put")
-    assert put[1] == "b"
-    assert {n["id"]: n["embedding"] for n in put[2]} == {"p": None, "c": [1.0, 2.0, 3.0]}
-    assert all("embed_text" not in n for n in put[2])
-    assert ("delete", "gone") in nas.calls
+    put = next(c for c in nas.calls if c[0] == "put" and c[1] == "bv/new.md")
+    assert put[2] == 1
+    assert {n["id"]: n["embedding"] for n in put[3]} == {"p": None, "c": [1.0, 2.0, 3.0]}
+    assert all("embed_text" not in n for n in put[3])
+    assert ("prune", 1, ["same.md", "bv/new.md"]) in nas.calls
+    assert ("prune", 2, ["hb/a.md"]) in nas.calls
 
 
-def test_missing_source_never_deletes(monkeypatch):
-    meta = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS}
-    nas = FakeNas(meta=meta, indexed={"a": "h"}, files=[], missing=["handboek"])
+def test_one_index_by_name(monkeypatch):
+    nas = FakeNas({"Mijn BV": {"files": ["bv/a.md"]}, "Handboek": {"files": ["hb/a.md"]}})
+    _run(monkeypatch, nas, only="handboek")
+    assert [c[1] for c in nas.calls if c[0] == "prepare"] == ["hb/a.md"]
+    with pytest.raises(SystemExit):
+        _run(monkeypatch, nas, only="Bestaat niet")
+
+
+def test_missing_source_never_prunes(monkeypatch):
+    nas = FakeNas({"Mijn BV": {"files": [], "missing": ["bv"]}})
     counts = _run(monkeypatch, nas)
     assert counts["deleted"] == 0
-    assert not any(c[0] == "delete" for c in nas.calls)
+    assert not any(c[0] == "prune" for c in nas.calls)
 
 
 def test_reset_reason():

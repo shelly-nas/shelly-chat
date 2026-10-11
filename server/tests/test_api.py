@@ -11,6 +11,8 @@ import pytest
 pytestmark = pytest.mark.skipif(not os.getenv("DB_HOST"), reason="needs a database (DB_HOST)")
 
 TOKEN = "test-token"
+AUTH = {"Authorization": f"Bearer {TOKEN}"}
+META = {"embed_model": "test-embed", "embed_dimensions": 3}
 
 
 @pytest.fixture(scope="module")
@@ -19,17 +21,20 @@ def docs_root(tmp_path_factory):
     import docx
 
     root = tmp_path_factory.mktemp("documents")
-    (root / "handboek").mkdir()
-    (root / "handboek" / "brp.md").write_text(
+    (root / "bv").mkdir()
+    (root / "bv" / "brp.md").write_text(
         " ".join(f"Zin {i} over de Basisregistratie Personen (BRP)." for i in range(400))
     )
-    (root / "handboek" / "notities.xyz").write_text("niet ondersteund")
-    (root / "handboek" / ".verborgen.md").write_text("verborgen")
+    (root / "bv" / "notities.xyz").write_text("niet ondersteund")
+    (root / "bv" / ".verborgen.md").write_text("verborgen")
+    (root / "bv" / "archief").mkdir()
+    (root / "bv" / "archief" / "oud.md").write_text("Oude informatie over facturen. " * 20)
+    (root / "bv" / "concept-plan.md").write_text("Een concept. " * 20)
     (root / "team").mkdir()
     d = docx.Document()
     d.add_paragraph("Het Renovate-proces opent pull requests.")
     d.save(root / "team" / "renovate.docx")
-    (root / "geheim.md").write_text("los bestand in de root")
+    (root / "los.md").write_text("los bestand in de root")
     return root
 
 
@@ -45,101 +50,161 @@ def client(docs_root):
     from app.main import app
 
     with TestClient(app) as c:
+        # Start from a clean store; the demo seed may have added an index.
+        for i in c.get("/api/indexes").json()["indexes"]:
+            c.delete(f"/api/indexes/{i['id']}", headers=AUTH)
+        c.put("/api/index/meta", json={**META, "reset": True}, headers=AUTH)
         yield c
 
 
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-META = {"embed_model": "test-embed", "embed_dimensions": 3}
+def new_index(client, name: str, *sources: str, ignore: str = "") -> dict:
+    index = client.post("/api/indexes", json={"name": name}, headers=AUTH)
+    assert index.status_code == 201, index.text
+    index_id = index.json()["id"]
+    for path in sources:
+        assert client.post(f"/api/indexes/{index_id}/sources", json={"path": path}, headers=AUTH).status_code == 201
+    if ignore:
+        client.patch(f"/api/indexes/{index_id}", json={"ignore_patterns": ignore}, headers=AUTH)
+    return client.get(f"/api/indexes/{index_id}").json()
 
 
-def _document(path: str, leaves: list[tuple[str, list[float]]]) -> dict:
-    parent = f"{path}-p"
-    return {
-        "file_path": path,
-        "file_name": path.rsplit("/", 1)[-1],
-        "source_url": f"/api/files/{path}",
-        "content_hash": "hash-" + path,
-        "content": "De Basisregistratie Personen (BRP) is de bron. " + " ".join(t for t, _ in leaves),
-        "nodes": [
-            {"id": parent, "is_leaf": False, "position": 0, "content": "parent of " + path},
-            *[
-                {
-                    "id": f"{path}-{i}",
-                    "parent_id": parent,
-                    "is_leaf": True,
-                    "position": i + 1,
-                    "content": text,
-                    "embedding": emb,
-                }
-                for i, (text, emb) in enumerate(leaves)
-            ],
-        ],
-    }
+# Fake embeddings: every document points its own way, so a search can find each.
+DIRECTIONS = {"bv/brp.md": [1.0, 0.0, 0.0], "team/renovate.docx": [0.0, 0.0, 1.0]}
+
+
+def index_run(client, index_id: int) -> dict:
+    """What the browser does: list, prepare, embed (fake), store, prune."""
+    listing = client.get(f"/api/indexes/{index_id}/files", headers=AUTH).json()
+    statuses = {}
+    for path in listing["files"]:
+        r = client.post("/api/index/prepare", json={"file_path": path, "index_id": index_id}, headers=AUTH)
+        assert r.status_code == 200, r.text
+        prepared = r.json()
+        statuses[path] = prepared["status"]
+        if prepared["status"] in ("new", "changed"):
+            doc = prepared["document"]
+            doc["index_id"] = index_id
+            vector = DIRECTIONS.get(path, [0.0, 1.0, 0.0])
+            doc["nodes"] = [{**n, "embedding": vector if n["is_leaf"] else None} for n in doc["nodes"]]
+            assert client.put("/api/index/documents", json=doc, headers=AUTH).status_code == 200
+    pruned = client.post(f"/api/indexes/{index_id}/prune", json={"keep": listing["files"]}, headers=AUTH).json()
+    return {"files": listing["files"], "statuses": statuses, **pruned}
 
 
 def test_health(client):
     body = client.get("/api/health").json()
-    assert body["status"] == "ok"
-    assert "version" in body
+    assert body["status"] == "ok" and "version" in body
 
 
-def test_index_requires_token(client):
+def test_changes_need_the_token(client):
+    assert client.get("/api/index/auth").status_code == 401
+    assert client.get("/api/index/auth", headers=AUTH).json() == {"ok": True}
+    assert client.post("/api/indexes", json={"name": "X"}).status_code == 401
     assert client.put("/api/index/meta", json=META).status_code == 401
 
 
-def test_index_and_retrieve(client):
-    r = client.put("/api/index/meta", json={**META, "reset": True}, headers=AUTH)
-    assert r.status_code == 200, r.text
+def test_indexes_sources_and_ignore_patterns(client):
+    bv = new_index(client, "Mijn BV", "/bv/")
+    assert bv["sources"][0]["path"] == "bv"
+    # brp.md, archief/oud.md and concept-plan.md; hidden and unsupported files never count.
+    assert bv["sources"][0]["documents"] == 3
 
-    # Changing the config without reset is refused.
-    r = client.put("/api/index/meta", json={**META, "embed_model": "other"}, headers=AUTH)
-    assert r.status_code == 409
-    # The chunk configuration comes from the server, not from the indexer.
-    assert r.json() and client.get("/api/index/settings").json()["meta"]["parent_chunk_size"] == 1500
+    assert client.post("/api/indexes", json={"name": "Mijn BV"}, headers=AUTH).status_code == 409
+    assert client.post(f"/api/indexes/{bv['id']}/sources", json={"path": "bv"}, headers=AUTH).status_code == 409
+    assert client.post(f"/api/indexes/{bv['id']}/sources", json={"path": "bestaat-niet"}, headers=AUTH).status_code == 422
+    escape = client.post(f"/api/indexes/{bv['id']}/sources", json={"path": "../../etc"}, headers=AUTH)
+    assert escape.status_code == 422 and ".." in escape.json()["detail"]
 
-    docs = [
-        _document("wiki/a.md", [("alpha one", [1, 0, 0]), ("alpha two", [0.9, 0.1, 0]), ("alpha three", [0, 0, 1])]),
-        _document("wiki/b.md", [("beta one", [0, 1, 0]), ("beta two", [0.1, 0.9, 0]), ("beta three", [0, 0.8, 0.2]), ("beta four", [0, 0, 1])]),
-    ]
-    for d in docs:
-        r = client.put("/api/index/documents", json=d, headers=AUTH)
-        assert r.status_code == 200, r.text
-    assert r.json()["abbreviations"] == 1
+    # gitignore syntax against paths relative to the documents folder.
+    r = client.patch(f"/api/indexes/{bv['id']}", json={"ignore_patterns": "archief/\r\nconcept*\n# notitie\n"}, headers=AUTH)
+    assert r.json()["ignore_patterns"] == "archief/\nconcept*\n# notitie\n"
+    assert r.json()["sources"][0]["documents"] == 1
+    assert client.get(f"/api/indexes/{bv['id']}/files", headers=AUTH).json() == {"files": ["bv/brp.md"], "missing": []}
 
-    listed = client.get("/api/index/documents", headers=AUTH).json()["documents"]
-    assert [d["file_path"] for d in listed] == ["wiki/a.md", "wiki/b.md"]
+    renamed = client.patch(f"/api/indexes/{bv['id']}", json={"name": "Mijn BV bv"}, headers=AUTH).json()
+    assert renamed["name"] == "Mijn BV bv"
 
-    # A wrong dimension count is refused before anything is stored.
-    bad = _document("wiki/c.md", [("x", [1, 0])])
-    assert client.put("/api/index/documents", json=bad, headers=AUTH).status_code == 422
+    browse = client.get("/api/index/browse").json()
+    assert browse == {"path": "", "folders": ["bv", "team"], "documents": ["los.md"]}
+
+    client.delete(f"/api/indexes/{bv['id']}", headers=AUTH)
+
+
+def test_shared_documents_and_search_per_index(client):
+    a = new_index(client, "A", "bv/brp.md", "team")
+    b = new_index(client, "B", "bv/brp.md")
+
+    run_a = index_run(client, a["id"])
+    assert run_a["statuses"] == {"bv/brp.md": "new", "team/renovate.docx": "new"}
+    # B shares brp.md: already split and embedded, it just joins B.
+    run_b = index_run(client, b["id"])
+    assert run_b["statuses"] == {"bv/brp.md": "unchanged"}
 
     status = client.get("/api/index").json()
-    assert status["documents"] == 2 and status["chunks"] == 9
+    assert status["documents"] == 2 and status["indexes"] == 2
+    assert client.get(f"/api/indexes/{a['id']}").json()["documents"] == 2
+    assert client.get(f"/api/indexes/{b['id']}").json()["documents"] == 1
 
-    r = client.post("/api/retrieve", json={"embedding": [1, 0.05, 0], "embed_model": "test-embed"})
-    assert r.status_code == 200, r.text
-    contexts = r.json()["contexts"]
-    # All leaves of a.md are within top-K, so they merge into their parent.
-    assert contexts[0]["chunk_type"] == "parent"
-    assert contexts[0]["file_path"] == "wiki/a.md"
-    assert [c["source_num"] for c in contexts] == list(range(1, len(contexts) + 1))
+    def search(index_id, vector=(1, 0, 0)):
+        r = client.post("/api/retrieve", json={"embedding": list(vector), "embed_model": "test-embed", "index_id": index_id})
+        assert r.status_code == 200, r.text
+        return [c["file_path"] for c in r.json()["contexts"]]
 
-    r = client.post("/api/retrieve", json={"embedding": [1, 0, 0], "embed_model": "other"})
-    assert r.status_code == 409
+    # A question about Renovate finds it first in A; B does not contain it at all.
+    assert search(a["id"], (0, 0, 1))[0] == "team/renovate.docx"
+    assert "team/renovate.docx" not in search(b["id"], (0, 0, 1))
+    assert set(search(b["id"])) == {"bv/brp.md"}
 
-    r = client.post("/api/expand", json={"query": "Wat staat er in de brp?"})
-    assert r.json()["query"] == "Wat staat er in de BRP (Basisregistratie Personen)?"
+    # Abbreviations come only from the conversation's index.
+    q = "Wat staat er in de brp?"
+    assert client.post("/api/expand", json={"query": q, "index_id": b["id"]}).json()["query"] == (
+        "Wat staat er in de BRP (Basisregistratie Personen)?"
+    )
+    empty = new_index(client, "Leeg", "los.md")
+    assert client.post("/api/expand", json={"query": q, "index_id": empty["id"]}).json()["query"] == q
 
-    assert client.delete("/api/index/documents", params={"file_path": "wiki/b.md"}, headers=AUTH).status_code == 204
-    assert client.get("/api/index").json()["documents"] == 1
+    # Replacing a shared document keeps it in the other index.
+    assert client.post("/api/index/prepare", json={"file_path": "bv/brp.md"}, headers=AUTH).json()["status"] == "unchanged"
+    doc = client.post("/api/index/prepare", json={"file_path": "team/renovate.docx"}, headers=AUTH)
+    assert doc.json()["status"] == "unchanged"
+
+    # Removing a source drops its documents from that index at the next run;
+    # brp.md stays because B still has it, renovate.docx goes entirely.
+    source_id = next(s["id"] for s in client.get(f"/api/indexes/{a['id']}").json()["sources"] if s["path"] == "team")
+    client.delete(f"/api/indexes/{a['id']}/sources/{source_id}", headers=AUTH)
+    pruned = index_run(client, a["id"])
+    assert pruned["removed"] == 1 and pruned["deleted_documents"] == 1
+    assert set(search(b["id"])) == {"bv/brp.md"}
+
+    # Deleting index B leaves brp.md for A.
+    client.delete(f"/api/indexes/{b['id']}", headers=AUTH)
+    assert set(search(a["id"], (0, 0, 1))) == {"bv/brp.md"}
 
     assert client.get("/api/config").json()["embed_model"] == "test-embed"
+    for i in (a, empty):
+        client.delete(f"/api/indexes/{i['id']}", headers=AUTH)
+    assert client.get("/api/index").json()["documents"] == 0
 
 
-def test_conversations(client):
+def test_store_validates_embeddings(client):
+    idx = new_index(client, "Validatie", "bv/brp.md")
+    prepared = client.post("/api/index/prepare", json={"file_path": "bv/brp.md", "index_id": idx["id"]}, headers=AUTH).json()
+    doc = {**prepared["document"], "index_id": idx["id"]}
+    doc["nodes"] = [{**n, "embedding": [1.0, 0.0] if n["is_leaf"] else None} for n in doc["nodes"]]
+    assert client.put("/api/index/documents", json=doc, headers=AUTH).status_code == 422
+    assert client.post("/api/index/prepare", json={"file_path": "../x.md"}, headers=AUTH).status_code == 422
+    assert client.post("/api/index/prepare", json={"file_path": "bv/notities.xyz"}, headers=AUTH).status_code == 404
+    # A different model without reset is refused.
+    assert client.put("/api/index/meta", json={**META, "embed_model": "other"}, headers=AUTH).status_code == 409
+    client.delete(f"/api/indexes/{idx['id']}", headers=AUTH)
+
+
+def test_conversations_keep_their_index(client):
+    idx = new_index(client, "Gesprekken", "los.md")
+    assert client.post("/api/conversations", json={"messages": []}).status_code == 422
     r = client.post(
         "/api/conversations",
-        json={"messages": [
+        json={"index_id": idx["id"], "messages": [
             {"role": "user", "content": "Wat is BRP?", "effective_query": "Wat is BRP (Basisregistratie Personen)?"},
             {"role": "assistant", "content": "De bron.", "sources": [{"source_num": 1}], "model": "m", "duration_ms": 5},
         ]},
@@ -147,87 +212,41 @@ def test_conversations(client):
     assert r.status_code == 201, r.text
     conversation = r.json()
     assert conversation["title"] == "Wat is BRP?"
+    assert conversation["index_id"] == idx["id"] and conversation["index_name"] == "Gesprekken"
     cid = conversation["id"]
 
-    r = client.post(f"/api/conversations/{cid}/messages", json={"messages": [{"role": "user", "content": "En nu?"}]})
-    assert r.status_code == 201
-
+    assert client.post(f"/api/conversations/{cid}/messages", json={"messages": [{"role": "user", "content": "En nu?"}]}).status_code == 201
     full = client.get(f"/api/conversations/{cid}").json()
     assert [m["role"] for m in full["messages"]] == ["user", "assistant", "user"]
-    assert full["messages"][1]["sources"] == [{"source_num": 1}]
+    assert client.patch(f"/api/conversations/{cid}", json={"title": "BRP"}).json()["index_name"] == "Gesprekken"
 
-    assert client.patch(f"/api/conversations/{cid}", json={"title": "BRP"}).json()["title"] == "BRP"
-    assert any(c["id"] == cid for c in client.get("/api/conversations").json()["conversations"])
+    # Deleting the index keeps the conversation readable, without an index.
+    client.delete(f"/api/indexes/{idx['id']}", headers=AUTH)
+    listed = next(c for c in client.get("/api/conversations").json()["conversations"] if c["id"] == cid)
+    assert listed["index_id"] is None and listed["index_name"] is None
 
     assert client.delete(f"/api/conversations/{cid}").status_code == 204
     assert client.get(f"/api/conversations/{cid}").status_code == 404
 
 
-def test_sources_and_token_check(client):
-    assert client.get("/api/index/auth").status_code == 401
-    assert client.get("/api/index/auth", headers=AUTH).json() == {"ok": True}
+def test_system_prompt_setting(client):
+    default = client.put("/api/settings", json={"system_prompt": None}).json()
+    assert default["system_prompt_is_default"] is True
+    assert default["system_prompt"] == default["default_system_prompt"]
 
-    # Start from no sources (the demo seed adds the whole folder as one).
-    for existing in client.get("/api/index/settings").json()["sources"]:
-        client.delete(f"/api/index/sources/{existing['id']}", headers=AUTH)
+    r = client.put("/api/settings", json={"system_prompt": "  Antwoord in het Nederlands. Vandaag is {today}.  "}).json()
+    assert r["system_prompt"] == "Antwoord in het Nederlands. Vandaag is {today}."
+    assert r["system_prompt_is_default"] is False
+    assert client.get("/api/config").json()["system_prompt"] == r["system_prompt"]
 
-    folder = client.post("/api/index/sources", json={"path": "/handboek/"}, headers=AUTH)
-    assert folder.status_code == 201, folder.text
-    assert folder.json()["path"] == "handboek" and folder.json()["documents"] == 1
-    single = client.post("/api/index/sources", json={"path": "team/renovate.docx"}, headers=AUTH)
-    assert single.status_code == 201 and single.json()["documents"] == 1
-
-    assert client.post("/api/index/sources", json={"path": "handboek"}, headers=AUTH).status_code == 409
-    assert client.post("/api/index/sources", json={"path": "bestaat-niet"}, headers=AUTH).status_code == 422
-    escape = client.post("/api/index/sources", json={"path": "../../etc"}, headers=AUTH)
-    assert escape.status_code == 422 and ".." in escape.json()["detail"]
-
-    settings = client.get("/api/index/settings").json()
-    assert [s["path"] for s in settings["sources"]] == ["handboek", "team/renovate.docx"]
-    assert settings["documents_root_exists"] is True
-
-    listing = client.get("/api/index/files", headers=AUTH).json()
-    assert listing == {"files": ["handboek/brp.md", "team/renovate.docx"], "missing": []}
-
-    browse = client.get("/api/index/browse").json()
-    assert browse == {"path": "", "folders": ["handboek", "team"], "documents": ["geheim.md"]}
-    assert client.get("/api/index/browse", params={"path": "../"}).status_code == 404
-
-    for source in (folder.json(), single.json()):
-        assert client.delete(f"/api/index/sources/{source['id']}", headers=AUTH).status_code == 204
-
-
-def test_prepare_reads_splits_and_skips_unchanged(client, docs_root):
-    client.put("/api/index/meta", json={**META, "reset": True}, headers=AUTH)
-    body = {"file_path": "handboek/brp.md"}
-
-    r = client.post("/api/index/prepare", json=body, headers=AUTH).json()
-    assert r["status"] == "new"
-    doc = r["document"]
-    assert doc["source_url"] == "/api/files/handboek/brp.md"
-    leaves = [n for n in doc["nodes"] if n["is_leaf"]]
-    assert leaves and len(leaves) > len(doc["nodes"]) - len(leaves)
-    assert all("brp.md" in n["embed_text"] and "/api/files" not in n["embed_text"] for n in leaves)
-
-    doc["nodes"] = [{**n, "embedding": [1.0, 0.0, 0.0] if n["is_leaf"] else None} for n in doc["nodes"]]
-    assert client.put("/api/index/documents", json=doc, headers=AUTH).status_code == 200
-
-    again = client.post("/api/index/prepare", json=body, headers=AUTH).json()
-    assert again["status"] == "unchanged"
-
-    (docs_root / "handboek" / "brp.md").write_text("Nu staat er iets anders over de BRP. " * 50)
-    assert client.post("/api/index/prepare", json=body, headers=AUTH).json()["status"] == "changed"
-
-    docx = client.post("/api/index/prepare", json={"file_path": "team/renovate.docx"}, headers=AUTH).json()
-    assert "Renovate-proces" in docx["document"]["content"]
-
-    assert client.post("/api/index/prepare", json={"file_path": "../x.md"}, headers=AUTH).status_code == 422
-    assert client.post("/api/index/prepare", json={"file_path": "handboek/notities.xyz"}, headers=AUTH).status_code == 404
+    back = client.put("/api/settings", json={"system_prompt": ""}).json()
+    assert back["system_prompt_is_default"] is True
+    assert client.get("/api/config").json()["system_prompt"] == default["default_system_prompt"]
 
 
 def test_serves_original_documents(client):
     r = client.get("/api/files/team/renovate.docx")
     assert r.status_code == 200 and r.headers["content-disposition"].startswith("inline")
-    assert client.get("/api/files/geheim.md").text == "los bestand in de root"
-    assert client.get("/api/files/handboek/notities.xyz").status_code == 404
+    assert client.get("/api/files/los.md").text == "los bestand in de root"
+    assert client.get("/api/files/bv/notities.xyz").status_code == 404
     assert client.get("/api/files/..%2F..%2Fetc%2Fpasswd").status_code == 404

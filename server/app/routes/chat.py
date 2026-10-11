@@ -8,7 +8,7 @@ answer from Ollama. Config comes from /api/config once at startup.
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from app import abbreviations, config, db, retrieval
+from app import abbreviations, config, db, retrieval, settings
 
 router = APIRouter(prefix="/api")
 
@@ -25,9 +25,11 @@ def _index_meta(conn) -> dict | None:
 def get_config():
     with db.connection() as conn:
         meta = _index_meta(conn)
+        system_prompt = settings.system_prompt(conn)
     return {
         "llm_model": config.LLM_MODEL_NAME,
-        "system_prompt": config.LLM_SYSTEM_PROMPT,
+        # Edited in the app's settings; every conversation uses the current one.
+        "system_prompt": system_prompt,
         "no_answer_response": config.NO_ANSWER_RESPONSE,
         "history_max_turns": config.CHAT_HISTORY_MAX_TURNS,
         "query_max_length": config.QUERY_MAX_LENGTH,
@@ -45,6 +47,8 @@ def get_config():
 
 class ExpandRequest(BaseModel):
     query: str
+    # Only abbreviations from the conversation's index are used.
+    index_id: int
 
     @field_validator("query")
     @classmethod
@@ -64,8 +68,10 @@ def expand(request: ExpandRequest):
     with db.connection() as conn:
         rows = conn.execute(
             "SELECT abbrev, term, source_url, file_name, snippet FROM abbreviations"
-            " WHERE upper(abbrev) = ANY(%s) ORDER BY id",
-            (tokens,),
+            " WHERE upper(abbrev) = ANY(%s)"
+            " AND document_id IN (SELECT document_id FROM index_documents WHERE index_id = %s)"
+            " ORDER BY id",
+            (tokens, request.index_id),
         ).fetchall()
     by_abbrev: dict[str, list[dict]] = {}
     for row in rows:
@@ -77,6 +83,7 @@ def expand(request: ExpandRequest):
 class RetrieveRequest(BaseModel):
     embedding: list[float] = Field(min_length=1)
     embed_model: str
+    index_id: int
 
 
 @router.post("/retrieve")
@@ -86,7 +93,7 @@ def retrieve(request: RetrieveRequest):
     if meta is None:
         raise HTTPException(
             status_code=409,
-            detail="Er is nog niets geïndexeerd. Draai eerst de indexer (zie host/README.md).",
+            detail="Er is nog niets geïndexeerd. Open Index in de zijbalk om te indexeren.",
         )
     if request.embed_model != meta["embed_model"]:
         raise HTTPException(
@@ -97,7 +104,7 @@ def retrieve(request: RetrieveRequest):
             ),
         )
     try:
-        contexts = retrieval.default_retrieve(request.embedding)
+        contexts = retrieval.default_retrieve(request.embedding, request.index_id)
     except retrieval.DimensionMismatch as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"contexts": contexts}

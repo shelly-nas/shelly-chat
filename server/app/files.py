@@ -7,6 +7,8 @@ would leave it: absolute paths, '..', or symlinks pointing outside.
 
 from pathlib import Path, PurePosixPath
 
+import pathspec
+
 from app import config
 
 SUPPORTED_EXTENSIONS = {".md", ".adoc", ".txt", ".pdf", ".docx", ".doc"}
@@ -78,3 +80,28 @@ def browse(folder: str) -> dict:
         elif is_supported(p):
             documents.append(relative(p))
     return {"path": normalize(folder), "folders": folders, "documents": documents}
+
+
+def ignore_spec(patterns: str) -> pathspec.GitIgnoreSpec:
+    """gitignore semantics, matched against paths relative to the documents folder."""
+    return pathspec.GitIgnoreSpec.from_lines(patterns.splitlines())
+
+
+def list_index_documents(sources: list[str], ignore_patterns: str) -> tuple[list[str], list[str]]:
+    """Every document in an index's sources, minus what the ignore patterns exclude.
+
+    Returns (files, missing): `missing` are sources that could not be read. A
+    run only removes documents that are gone when nothing is missing, so a
+    folder that is (temporarily) unavailable never empties an index.
+    """
+    spec = ignore_spec(ignore_patterns)
+    found: dict[str, None] = {}
+    missing = []
+    for source in sources:
+        try:
+            for path in list_documents(source):
+                if not spec.match_file(path):
+                    found[path] = None
+        except PathError:
+            missing.append(source)
+    return sorted(found), missing

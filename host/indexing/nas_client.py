@@ -38,12 +38,18 @@ class NasClient:
         """Chunk configuration, sources and the current index meta."""
         return self._request("GET", "/api/index/settings")
 
-    def list_files(self) -> dict:
-        """Documents in the sources (`files`) and sources that could not be read (`missing`)."""
-        return self._request("GET", "/api/index/files")
+    def indexes(self) -> list:
+        return self._request("GET", "/api/indexes")["indexes"]
 
-    def prepare_document(self, file_path: str) -> dict:
-        return self._request("POST", "/api/index/prepare", json={"file_path": file_path})
+    def index_files(self, index_id: int) -> dict:
+        """Documents in the index (`files`) and sources that could not be read (`missing`)."""
+        return self._request("GET", f"/api/indexes/{index_id}/files")
+
+    def prepare_document(self, file_path: str, index_id: int) -> dict:
+        return self._request("POST", "/api/index/prepare", json={"file_path": file_path, "index_id": index_id})
+
+    def prune_index(self, index_id: int, keep: list) -> dict:
+        return self._request("POST", f"/api/indexes/{index_id}/prune", json={"keep": keep})
 
     def put_meta(self, meta: dict, reset: bool) -> dict:
         return self._request("PUT", "/api/index/meta", json={**meta, "reset": reset})
@@ -54,9 +60,6 @@ class NasClient:
 
     def put_document(self, document: dict) -> dict:
         return self._request("PUT", "/api/index/documents", json=document)
-
-    def delete_document(self, file_path: str) -> None:
-        self._request("DELETE", "/api/index/documents", params={"file_path": file_path})
 
     def rebuild_abbreviations(self) -> dict:
         return self._request("POST", "/api/index/abbreviations")

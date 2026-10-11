@@ -13,6 +13,8 @@ export interface Settings {
   indexToken: string;
   /** Embedding model for indexing; empty: the index's current one. */
   embedModel: string;
+  /** Index a new conversation starts with: the one chosen last time. */
+  lastIndexId: number | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   expandQuery: true,
   indexToken: "",
   embedModel: "",
+  lastIndexId: null,
 };
 
 const KEY = "shelly-chat.settings";

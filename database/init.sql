@@ -23,12 +23,27 @@ CREATE TABLE IF NOT EXISTS index_meta (
     updated_at           timestamptz NOT NULL DEFAULT now()
 );
 
--- What to index: folders (recursively) or single files, as paths relative to
--- the documents folder on the NAS (DOCUMENTS_DIR). '' is the whole folder.
+-- Named indexes ("Mijn BV", "Handboek"): what a conversation searches. Each
+-- has its own sources and ignore patterns; the embedding model and chunk
+-- configuration in index_meta are shared by all of them.
+CREATE TABLE IF NOT EXISTS indexes (
+    id              bigserial   PRIMARY KEY,
+    name            text        NOT NULL UNIQUE,
+    -- gitignore syntax, one pattern per line, matched against paths relative
+    -- to the documents folder. Stored here; no .gitignore file is written.
+    ignore_patterns text        NOT NULL DEFAULT '',
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- Folders (recursively) or single files in an index, as paths relative to the
+-- documents folder on the NAS (DOCUMENTS_DIR). '' is the whole folder.
 CREATE TABLE IF NOT EXISTS index_sources (
     id         bigserial   PRIMARY KEY,
-    path       text        NOT NULL UNIQUE,
-    created_at timestamptz NOT NULL DEFAULT now()
+    index_id   bigint      NOT NULL REFERENCES indexes (id) ON DELETE CASCADE,
+    path       text        NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (index_id, path)
 );
 
 -- One row per indexed file; file_path is relative to the documents folder.
@@ -43,6 +58,15 @@ CREATE TABLE IF NOT EXISTS documents (
     metadata     jsonb       NOT NULL DEFAULT '{}',
     indexed_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Which documents belong to which index. A file in two indexes is split and
+-- embedded once; a document in no index any more is removed.
+CREATE TABLE IF NOT EXISTS index_documents (
+    index_id    bigint NOT NULL REFERENCES indexes (id) ON DELETE CASCADE,
+    document_id bigint NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+    PRIMARY KEY (index_id, document_id)
+);
+CREATE INDEX IF NOT EXISTS index_documents_document_id_idx ON index_documents (document_id);
 
 -- Hierarchical chunks: large parent chunks and the small leaf chunks inside
 -- them. Only leaves carry an embedding; a parent is returned instead of its
@@ -89,6 +113,9 @@ CREATE INDEX IF NOT EXISTS abbreviations_document_id_idx ON abbreviations (docum
 CREATE TABLE IF NOT EXISTS conversations (
     id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     title      text        NOT NULL DEFAULT 'Nieuw gesprek',
+    -- Chosen when the conversation starts and fixed from then on. NULL once
+    -- the index is deleted: the conversation stays readable.
+    index_id   bigint      REFERENCES indexes (id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -110,3 +137,12 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX IF NOT EXISTS messages_conversation_id_idx ON messages (conversation_id, created_at);
+
+-- ── Settings ─────────────────────────────────────────────────────────────────
+-- Shared settings changed in the app. A missing key means the default from
+-- the environment (e.g. LLM_SYSTEM_PROMPT). Only the current value is kept.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key        text        PRIMARY KEY,
+    value      text        NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);

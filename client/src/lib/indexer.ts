@@ -1,14 +1,17 @@
-// One indexing run from the browser: NAS (read + split) → Ollama (embed) → NAS (store).
+// Indexing one named index from the browser: NAS (read + split) → Ollama (embed) → NAS (store).
 //
-//   1. Embedding model and dimension. A different model or chunk size than the
-//      index was built with means starting over: those vectors do not mix.
-//   2. The NAS lists every document in the sources (folders in its documents
-//      folder), so the total is known.
+//   1. Embedding model and dimension, shared by all indexes. A different model
+//      or chunk size than the store was built with means starting over: those
+//      vectors do not mix, so every index has to be indexed again.
+//   2. The NAS lists the documents in the index's sources, minus its ignore
+//      patterns, so the total is known.
 //   3. Per document: POST /api/index/prepare (the NAS reads, extracts, hashes
-//      and splits; unchanged documents stop here), embed the leaf chunks with
-//      Ollama, PUT /api/index/documents.
-//   4. Remove documents that are gone from the sources - only when every
-//      source could be read, so a missing folder never empties the index.
+//      and splits; a document already embedded - perhaps for another index -
+//      just joins this one), embed the leaf chunks with Ollama, PUT
+//      /api/index/documents.
+//   4. Prune: documents that left the index (deleted, ignored, source removed)
+//      leave it - only when every source could be read, so a missing folder
+//      never empties an index.
 //
 // host/indexing/indexer.py is the same run for the command line.
 import { api } from "./api";
@@ -36,13 +39,14 @@ export interface RunOptions {
   ollamaUrl: string;
   embedModel: string;
   indexToken: string;
+  /** Empty the whole store first (all indexes). */
   full: boolean;
   signal: AbortSignal;
   log: (level: LogLevel, message: string) => void;
   progress: (p: RunProgress) => void;
 }
 
-/** Why the index must be rebuilt for this model, or null when it need not be. */
+/** Why the store must be rebuilt for this model, or null when it need not be. */
 export function resetReason(
   meta: IndexSettings["meta"],
   chunks: ChunkConfig,
@@ -57,12 +61,11 @@ export function resetReason(
   return changed.length ? `andere chunkinstellingen (${changed.join(", ")})` : null;
 }
 
-export async function runIndex(o: RunOptions): Promise<RunCounts> {
-  const counts: RunCounts = { new: 0, changed: 0, unchanged: 0, deleted: 0, failed: 0 };
-  const settings = await api.indexSettings();
-  if (settings.sources.length === 0) throw new Error("Voeg eerst een bron toe.");
+const emptyCounts = (): RunCounts => ({ new: 0, changed: 0, unchanged: 0, deleted: 0, failed: 0 });
 
-  // 1. Model and dimension
+/** Step 1: make sure the store uses this model; resets it when needed. Returns whether it did. */
+async function prepareStore(o: RunOptions): Promise<boolean> {
+  const settings = await api.indexSettings();
   const sameModel = settings.meta?.embed_model === o.embedModel;
   let dimensions = sameModel ? settings.meta!.embed_dimensions : 0;
   if (!sameModel) {
@@ -71,69 +74,77 @@ export async function runIndex(o: RunOptions): Promise<RunCounts> {
   }
   const reason = resetReason(settings.meta, settings.chunk_config, o.embedModel, dimensions);
   const reset = o.full || reason !== null;
-  if (reason) o.log("warning", `De index wordt opnieuw opgebouwd: ${reason}.`);
-  else if (o.full) o.log("info", "Volledig opnieuw: de index wordt eerst geleegd.");
+  if (reason) o.log("warning", `Alle indexen worden opnieuw opgebouwd: ${reason}.`);
+  else if (o.full) o.log("info", "Volledig opnieuw: alle geïndexeerde documenten worden eerst verwijderd.");
   await api.putIndexMeta(o.indexToken, { embed_model: o.embedModel, embed_dimensions: dimensions, reset });
-  const indexed = reset ? [] : await api.indexedDocuments(o.indexToken);
+  return reset;
+}
 
-  // 2. List the documents in the sources
-  const { files, missing } = await api.listFiles(o.indexToken);
-  for (const source of missing) o.log("error", `Bron '${source || "."}' bestaat niet (meer) in de documentenmap; overgeslagen.`);
-  o.log("info", `${files.length} documenten in ${settings.sources.length} bronnen.`);
+/** Steps 2-4 for one index. */
+async function indexOne(o: RunOptions, indexId: number, name: string, counts: RunCounts): Promise<void> {
+  const { files, missing } = await api.indexFiles(o.indexToken, indexId);
+  for (const source of missing) o.log("error", `${name}: bron '${source || "."}' bestaat niet (meer) in de documentenmap; overgeslagen.`);
+  o.log("info", `${name}: ${files.length} documenten.`);
 
   const report = (current: string | null, done: number) =>
     o.progress({ done, total: files.length, current, counts: { ...counts } });
   report(null, 0);
 
-  // 3. Prepare, embed and store each document
-  try {
-    for (const [i, filePath] of files.entries()) {
-      if (o.signal.aborted) throw new DOMException("Gestopt", "AbortError");
-      report(filePath, i);
-      try {
-        const prepared = await api.prepareDocument(o.indexToken, filePath, o.signal);
-        if (prepared.status === "unchanged" || prepared.status === "empty") {
-          counts.unchanged++;
-          continue;
-        }
-        const doc = prepared.document!;
-        const leaves = doc.nodes.filter((n) => n.is_leaf);
-        const vectors = await embedMany(o.ollamaUrl, o.embedModel, leaves.map((n) => n.embed_text!), {
-          signal: o.signal,
-        });
-        const byId = new Map(leaves.map((n, j) => [n.id, vectors[j]]));
-        const stored = await api.putDocument(
-          o.indexToken,
-          {
-            ...doc,
-            nodes: doc.nodes.map(({ embed_text: _, ...n }) => ({ ...n, embedding: byId.get(n.id) ?? null })),
-          },
-          o.signal,
-        );
-        counts[prepared.status]++;
-        const extra = stored.abbreviations ? `, ${stored.abbreviations} afkortingen` : "";
-        o.log("success", `${filePath}: ${prepared.status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra}`);
-      } catch (err) {
-        if (o.signal.aborted) throw err;
-        counts.failed++;
-        o.log("error", `${filePath}: ${(err as Error).message}`);
+  for (const [i, filePath] of files.entries()) {
+    if (o.signal.aborted) throw new DOMException("Gestopt", "AbortError");
+    report(filePath, i);
+    try {
+      const prepared = await api.prepareDocument(o.indexToken, filePath, indexId, o.signal);
+      if (prepared.status === "unchanged" || prepared.status === "empty") {
+        counts.unchanged++;
+        continue;
       }
+      const doc = prepared.document!;
+      const leaves = doc.nodes.filter((n) => n.is_leaf);
+      const vectors = await embedMany(o.ollamaUrl, o.embedModel, leaves.map((n) => n.embed_text!), {
+        signal: o.signal,
+      });
+      const byId = new Map(leaves.map((n, j) => [n.id, vectors[j]]));
+      const stored = await api.putDocument(
+        o.indexToken,
+        {
+          ...doc,
+          index_id: indexId,
+          nodes: doc.nodes.map(({ embed_text: _, ...n }) => ({ ...n, embedding: byId.get(n.id) ?? null })),
+        },
+        o.signal,
+      );
+      counts[prepared.status]++;
+      const extra = stored.abbreviations ? `, ${stored.abbreviations} afkortingen` : "";
+      o.log("success", `${filePath}: ${prepared.status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra}`);
+    } catch (err) {
+      if (o.signal.aborted) throw err;
+      counts.failed++;
+      o.log("error", `${filePath}: ${(err as Error).message}`);
     }
-    report(null, files.length);
+  }
+  report(null, files.length);
 
-  // 4. Remove what is gone from the sources
-    const seen = new Set(files);
-    const gone = indexed.map((d) => d.file_path).filter((p) => !seen.has(p));
-    if (gone.length && missing.length) {
-      o.log("warning", `${gone.length} documenten niet verwijderd: niet elke bron kon worden gelezen.`);
-    } else {
-      for (const path of gone) {
-        await api.deleteDocument(o.indexToken, path);
-        counts.deleted++;
-      }
-      if (gone.length) o.log("info", `${gone.length} documenten verwijderd die niet meer in de bronnen staan.`);
+  if (missing.length) {
+    o.log("warning", `${name}: niets uit de index gehaald, want niet elke bron kon worden gelezen.`);
+    return;
+  }
+  const pruned = await api.pruneIndex(o.indexToken, indexId, files);
+  counts.deleted += pruned.removed;
+  if (pruned.removed) o.log("info", `${name}: ${pruned.removed} documenten uit de index gehaald die er niet meer in horen.`);
+  report(null, files.length);
+}
+
+/** Index one or more indexes after each other; `full` empties the store once, first. */
+export async function runIndexes(o: RunOptions, indexes: { id: number; name: string }[]): Promise<RunCounts> {
+  const counts = emptyCounts();
+  if (indexes.length === 0) throw new Error("Er is geen index om te indexeren.");
+  try {
+    await prepareStore(o);
+    for (const index of indexes) {
+      if (o.signal.aborted) throw new DOMException("Gestopt", "AbortError");
+      await indexOne(o, index.id, index.name, counts);
     }
-    report(null, files.length);
   } finally {
     unload(o.ollamaUrl, o.embedModel).catch(() => {});
   }

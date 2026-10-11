@@ -6,6 +6,7 @@ import { Box, Button, Card, CardContent, Stack, Typography } from "@mui/material
 
 import { useAppState } from "../appState";
 import { hasModel } from "../lib/ollama";
+import type { DocIndex } from "../lib/types";
 
 interface Check {
   ok: boolean;
@@ -13,8 +14,8 @@ interface Check {
   hint: string;
 }
 
-export function useChecks(): Check[] | null {
-  const { config, configError, index, ollama, llmModel } = useAppState();
+export function useChecks(selected: DocIndex | null): Check[] | null {
+  const { config, configError, ollama, llmModel, indexes } = useAppState();
   if (ollama.status === "checking" || (!config && !configError)) return null;
 
   const models = ollama.status === "ok" ? ollama.models : [];
@@ -29,11 +30,17 @@ export function useChecks(): Check[] | null {
       label: ollama.status === "ok" ? "Ollama is bereikbaar" : "Ollama is niet bereikbaar",
       hint: "Start Ollama en sta deze pagina toe met OLLAMA_ORIGINS. De instellingen leggen uit hoe.",
     },
-    {
-      ok: (index?.documents ?? 0) > 0,
-      label: (index?.documents ?? 0) > 0 ? `${index!.documents} documenten geïndexeerd` : "Er is nog niets geïndexeerd",
-      hint: "Open Index in de zijbalk om documenten van de NAS te indexeren.",
-    },
+    !selected
+      ? {
+          ok: false,
+          label: indexes?.length ? "Kies een index" : "Er is nog geen index",
+          hint: "Maak een index onder Indexen in de zijbalk en voeg er mappen aan toe.",
+        }
+      : {
+          ok: selected.documents > 0,
+          label: selected.documents > 0 ? `${selected.documents} documenten in “${selected.name}”` : `“${selected.name}” is nog leeg`,
+          hint: "Open de index onder Indexen in de zijbalk en klik op Index bijwerken.",
+        },
   ];
   if (ollama.status === "ok" && config?.embed_model) {
     const ok = hasModel(models, config.embed_model);
@@ -54,8 +61,8 @@ export function useChecks(): Check[] | null {
   return checks;
 }
 
-export default function Readiness() {
-  const checks = useChecks();
+export default function Readiness({ index }: { index: DocIndex | null }) {
+  const checks = useChecks(index);
   const { setSettingsOpen } = useAppState();
   if (!checks || checks.every((c) => c.ok)) return null;
 

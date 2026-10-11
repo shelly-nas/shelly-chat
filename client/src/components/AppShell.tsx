@@ -116,11 +116,13 @@ function ConversationList({ onNavigate }: { onNavigate: () => void }) {
               navigate(`/c/${c.id}`);
               onNavigate();
             }}
-            sx={{ pr: 1, "& .delete": { opacity: 0 }, "&:hover .delete, &:focus-within .delete": { opacity: 1 } }}
+            sx={{ height: "auto", minHeight: 48, py: 1, pr: 1, "& .delete": { opacity: 0 }, "&:hover .delete, &:focus-within .delete": { opacity: 1 } }}
           >
             <ListItemText
               primary={c.title}
+              secondary={c.index_name ?? "Index verwijderd"}
               primaryTypographyProps={{ noWrap: true, fontSize: 14, fontWeight: "inherit", color: "inherit" }}
+              secondaryTypographyProps={{ noWrap: true, fontSize: 12, color: "text.secondary" }}
             />
             <IconButton
               className="delete"
@@ -166,8 +168,8 @@ function ConversationList({ onNavigate }: { onNavigate: () => void }) {
 function Sidebar({ onNavigate, onOpenSettings }: { onNavigate: () => void; onOpenSettings: () => void }) {
   const navigate = useNavigate();
   const { mode, toggle } = useColorMode();
-  const onIndex = useMatch("/index") !== null;
-  const { index } = useAppState();
+  const onIndex = useMatch("/index/*") !== null;
+  const { indexes } = useAppState();
 
   return (
     <Box
@@ -215,10 +217,10 @@ function Sidebar({ onNavigate, onOpenSettings }: { onNavigate: () => void; onOpe
           }}
         >
           <SourceOutlinedIcon fontSize="small" aria-hidden />
-          <ListItemText primary="Index" primaryTypographyProps={{ fontSize: 14, fontWeight: "inherit", color: "inherit" }} />
-          {index && (
+          <ListItemText primary="Indexen" primaryTypographyProps={{ fontSize: 14, fontWeight: "inherit", color: "inherit" }} />
+          {indexes && (
             <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
-              {index.documents}
+              {indexes.length}
             </Typography>
           )}
         </ListItemButton>

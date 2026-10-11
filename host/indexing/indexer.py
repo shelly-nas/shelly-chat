@@ -1,29 +1,30 @@
-"""Index the documents of shelly-chat from the command line.
+"""Index the named indexes of shelly-chat from the command line.
 
-The same run as the Index screen in the app (client/src/lib/indexer.ts), for
+The same run as the Index screens in the app (client/src/lib/indexer.ts), for
 when a terminal or a scheduled job is handier than a browser tab. It runs on a
 machine with Ollama; the documents themselves stay on the NAS:
 
-1. The sources (folders in the documents folder on the NAS, managed on the
-   Index screen) and the chunk configuration come from the NAS; the embedding
-   model from EMBED_MODEL. A different model, dimension or chunk configuration
-   than the index was built with resets the index.
-2. The NAS lists the documents in the sources (GET /api/index/files), then
-   reads, hashes and splits each one (POST /api/index/prepare). Unchanged
-   documents stop there; for the others the leaf chunks are embedded with the
-   local Ollama and stored (PUT /api/index/documents).
-3. Documents gone from the sources are removed - only when every source could
-   be read, so a missing folder never empties the index.
+1. The embedding model (EMBED_MODEL) and the chunk configuration are shared by
+   all indexes. A different model, dimension or chunk configuration than the
+   store was built with empties it: every index is then indexed again.
+2. Per index, the NAS lists the documents in its sources minus its ignore
+   patterns (GET /api/indexes/{id}/files), then reads, hashes and splits each
+   one (POST /api/index/prepare). A document already embedded - perhaps for
+   another index - just joins this one; for the others the leaf chunks are
+   embedded with the local Ollama and stored (PUT /api/index/documents).
+3. Documents that left the index are dropped from it (POST .../prune) - only
+   when every source could be read, so a missing folder never empties an index.
 
-    python -m indexing.indexer
-    python -m indexing.indexer --full-reindex
+    python -m indexing.indexer                    # every index
+    python -m indexing.indexer --index "Mijn BV"  # one index
+    python -m indexing.indexer --full-reindex     # empty the store, index everything
     python -m indexing.indexer --build-abbreviations
 """
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -71,9 +72,9 @@ def reset_reason(meta: Optional[dict], chunk_config: dict, embed_model: str, dim
     return f"andere chunkinstellingen ({', '.join(changed)})" if changed else None
 
 
-def store_document(file_path: str, nas: NasClient, embedder: OllamaEmbedder) -> Optional[dict]:
-    """Prepare, embed and store one document. Returns the outcome, or None if unchanged."""
-    prepared = nas.prepare_document(file_path)
+def store_document(file_path: str, index_id: int, nas: NasClient, embedder: OllamaEmbedder) -> Optional[dict]:
+    """Prepare, embed and store one document for an index. Returns the outcome, or None if unchanged."""
+    prepared = nas.prepare_document(file_path, index_id)
     if prepared["status"] in ("unchanged", "empty"):
         return None
 
@@ -85,20 +86,58 @@ def store_document(file_path: str, nas: NasClient, embedder: OllamaEmbedder) -> 
         {**{k: v for k, v in n.items() if k != "embed_text"}, "embedding": by_id.get(n["id"])}
         for n in document["nodes"]
     ]
+    document["index_id"] = index_id
     stored = nas.put_document(document)
     return {"status": prepared["status"], **stored}
 
 
-def run_pipeline(config: IndexingConfig, full_reindex: bool = False) -> Dict[str, int]:
+def index_one(index: dict, nas: NasClient, embedder: OllamaEmbedder, counts: Dict[str, int]) -> None:
+    name = index["name"]
+    listing = nas.index_files(index["id"])
+    for source in listing["missing"]:
+        log_error(f"{name}: bron '{source or '.'}' bestaat niet (meer) in de documentenmap; overgeslagen.")
+    files = listing["files"]
+    log_info(f"{name}: {len(files)} documenten.")
+
+    for i, path in enumerate(files, 1):
+        try:
+            outcome = store_document(path, index["id"], nas, embedder)
+        except (NasError, RuntimeError) as exc:
+            counts["failed"] += 1
+            log_error(f"  [{i}/{len(files)}] {path}: {exc}")
+            continue
+        if outcome is None:
+            counts["unchanged"] += 1
+            continue
+        counts[outcome["status"]] += 1
+        extra = f", {outcome['abbreviations']} afkorting(en)" if outcome["abbreviations"] else ""
+        label = "nieuw" if outcome["status"] == "new" else "gewijzigd"
+        log_info(f"  [{i}/{len(files)}] {path}: {label}, {outcome['chunks']} chunks{extra}")
+
+    if listing["missing"]:
+        log_warn(f"{name}: niets uit de index gehaald, want niet elke bron kon worden gelezen.")
+        return
+    pruned = nas.prune_index(index["id"], files)
+    counts["deleted"] += pruned["removed"]
+    if pruned["removed"]:
+        log_info(f"{name}: {pruned['removed']} document(en) uit de index gehaald die er niet meer in horen.")
+
+
+def run_pipeline(config: IndexingConfig, full_reindex: bool = False, only: Optional[str] = None) -> Dict[str, int]:
     counts = {"new": 0, "changed": 0, "unchanged": 0, "deleted": 0, "failed": 0}
     nas = config.nas()
     embedder = config.embedder()
 
-    settings = nas.settings()
-    if not settings["sources"]:
-        raise SystemExit("Er staan nog geen bronnen op de NAS. Voeg ze toe op het scherm Index in de app.")
+    indexes: List[dict] = nas.indexes()
+    if only is not None:
+        indexes = [i for i in indexes if i["name"].lower() == only.lower()]
+        if not indexes:
+            raise SystemExit(f"Er is geen index '{only}'. Indexen maak je op het scherm Indexen in de app.")
+    if not indexes:
+        raise SystemExit("Er zijn nog geen indexen. Maak ze op het scherm Indexen in de app.")
 
-    # 1. Model, dimension and whether to start over
+    # 1. Model, dimension and whether to start over (shared by all indexes)
+    settings = nas.settings()
     meta = settings["meta"]
     if meta and meta["embed_model"] == config.embed_model:
         dimensions = meta["embed_dimensions"]
@@ -107,46 +146,13 @@ def run_pipeline(config: IndexingConfig, full_reindex: bool = False) -> Dict[str
         dimensions = embedder.dimensions()
     reason = reset_reason(meta, settings["chunk_config"], config.embed_model, dimensions)
     if reason:
-        log_warn(f"De index wordt opnieuw opgebouwd: {reason}.")
-    reset = full_reindex or reason is not None
-    nas.put_meta({"embed_model": config.embed_model, "embed_dimensions": dimensions}, reset=reset)
-    indexed = {} if reset else nas.indexed_hashes()
+        log_warn(f"Alle indexen worden opnieuw opgebouwd: {reason}.")
+    nas.put_meta({"embed_model": config.embed_model, "embed_dimensions": dimensions}, reset=full_reindex or reason is not None)
 
-    # 2. The documents in the sources, listed by the NAS
-    listing = nas.list_files()
-    for source in listing["missing"]:
-        log_error(f"Bron '{source or '.'}' bestaat niet (meer) in de documentenmap; overgeslagen.")
-    files = listing["files"]
-    log_info(f"{len(files)} documenten in {len(settings['sources'])} bronnen.")
-
-    # 3. Prepare, embed and store
+    # 2-3. Each index
     try:
-        for i, path in enumerate(files, 1):
-            try:
-                outcome = store_document(path, nas, embedder)
-            except (NasError, RuntimeError) as exc:
-                counts["failed"] += 1
-                log_error(f"  [{i}/{len(files)}] {path}: {exc}")
-                continue
-            if outcome is None:
-                counts["unchanged"] += 1
-                continue
-            counts[outcome["status"]] += 1
-            extra = f", {outcome['abbreviations']} afkorting(en)" if outcome["abbreviations"] else ""
-            label = "nieuw" if outcome["status"] == "new" else "gewijzigd"
-            log_info(f"  [{i}/{len(files)}] {path}: {label}, {outcome['chunks']} chunks{extra}")
-
-        # 4. Remove what is gone from the sources
-        seen = set(files)
-        gone = [path for path in indexed if path not in seen]
-        if gone and listing["missing"]:
-            log_warn(f"{len(gone)} document(en) niet verwijderd: niet elke bron kon worden gelezen.")
-        else:
-            for path in gone:
-                nas.delete_document(path)
-                counts["deleted"] += 1
-            if gone:
-                log_info(f"{len(gone)} document(en) verwijderd die niet meer in de bronnen staan.")
+        for index in indexes:
+            index_one(index, nas, embedder, counts)
     finally:
         try:
             embedder.unload()
@@ -155,7 +161,7 @@ def run_pipeline(config: IndexingConfig, full_reindex: bool = False) -> Dict[str
 
     log_success(
         f"Klaar: {counts['new']} nieuw, {counts['changed']} gewijzigd, {counts['unchanged']} ongewijzigd, "
-        f"{counts['deleted']} verwijderd, {counts['failed']} mislukt."
+        f"{counts['deleted']} uit een index gehaald, {counts['failed']} mislukt."
     )
     return counts
 
@@ -165,11 +171,12 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Indexeer de documenten van shelly-chat. De bronnen staan op de NAS (scherm Index "
-            "in de app); de NAS in SHELLY_CHAT_URL (host/.env)."
+            "Werk de indexen van shelly-chat bij. Indexen, bronnen en ignore-patronen beheer je op "
+            "het scherm Indexen in de app; de NAS staat in SHELLY_CHAT_URL (host/.env)."
         ),
     )
-    parser.add_argument("--full-reindex", action="store_true", help="Leeg de index en indexeer alles opnieuw.")
+    parser.add_argument("--index", metavar="NAAM", default=None, help="Alleen deze index; standaard alle indexen.")
+    parser.add_argument("--full-reindex", action="store_true", help="Leeg alle indexen en indexeer alles opnieuw.")
     parser.add_argument(
         "--build-abbreviations",
         action="store_true",
@@ -182,7 +189,7 @@ def main() -> None:
         result = config.nas().rebuild_abbreviations()
         log_success(f"Klaar. {result['abbreviations']} afkortingen uit {result['documents']} documenten.")
         return
-    run_pipeline(config, full_reindex=args.full_reindex)
+    run_pipeline(config, full_reindex=args.full_reindex, only=args.index)
 
 
 if __name__ == "__main__":

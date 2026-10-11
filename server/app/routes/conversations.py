@@ -13,6 +13,9 @@ router = APIRouter(prefix="/api/conversations")
 
 TITLE_MAX_LENGTH = 80
 
+# The index is part of every conversation; index_name is NULL once it is deleted.
+_COLUMNS = "c.id, c.title, c.index_id, i.name AS index_name, c.created_at, c.updated_at"
+
 
 def _title_from(text: str) -> str:
     title = " ".join(text.split())
@@ -25,8 +28,8 @@ def _title_from(text: str) -> str:
 def list_conversations(limit: int = 100):
     with db.connection() as conn:
         rows = conn.execute(
-            "SELECT id, title, created_at, updated_at FROM conversations"
-            " ORDER BY updated_at DESC LIMIT %s",
+            f"SELECT {_COLUMNS} FROM conversations c LEFT JOIN indexes i ON i.id = c.index_id"
+            " ORDER BY c.updated_at DESC LIMIT %s",
             (min(max(limit, 1), 500),),
         ).fetchall()
     return {"conversations": rows}
@@ -44,6 +47,8 @@ class NewMessage(BaseModel):
 
 class CreateConversation(BaseModel):
     title: str | None = None
+    # Chosen when the conversation starts; it can not be changed afterwards.
+    index_id: int
     messages: list[NewMessage] = Field(default_factory=list)
 
 
@@ -77,24 +82,31 @@ def create_conversation(request: CreateConversation):
     first_user = next((m.content for m in request.messages if m.role == "user"), "")
     title = _title_from(request.title or first_user)
     with db.connection() as conn:
-        conversation = conn.execute(
-            "INSERT INTO conversations (title) VALUES (%s)"
-            " RETURNING id, title, created_at, updated_at",
-            (title,),
+        if not conn.execute("SELECT 1 FROM indexes WHERE id = %s", (request.index_id,)).fetchone():
+            raise HTTPException(status_code=422, detail="Deze index bestaat niet (meer).")
+        created = conn.execute(
+            "INSERT INTO conversations (title, index_id) VALUES (%s, %s) RETURNING id",
+            (title, request.index_id),
         ).fetchone()
+        conversation = _get(conn, created["id"])
         messages = _insert_messages(conn, conversation["id"], request.messages)
     return {**conversation, "messages": messages}
+
+
+def _get(conn, conversation_id) -> dict:
+    conversation = conn.execute(
+        f"SELECT {_COLUMNS} FROM conversations c LEFT JOIN indexes i ON i.id = c.index_id WHERE c.id = %s",
+        (conversation_id,),
+    ).fetchone()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Gesprek niet gevonden.")
+    return conversation
 
 
 @router.get("/{conversation_id}")
 def get_conversation(conversation_id: uuid.UUID):
     with db.connection() as conn:
-        conversation = conn.execute(
-            "SELECT id, title, created_at, updated_at FROM conversations WHERE id = %s",
-            (conversation_id,),
-        ).fetchone()
-        if conversation is None:
-            raise HTTPException(status_code=404, detail="Gesprek niet gevonden.")
+        conversation = _get(conn, conversation_id)
         messages = conn.execute(
             "SELECT id, role, content, effective_query, expansions, sources, model,"
             " duration_ms, created_at FROM messages"
@@ -129,13 +141,12 @@ class RenameConversation(BaseModel):
 def rename_conversation(conversation_id: uuid.UUID, request: RenameConversation):
     with db.connection() as conn:
         row = conn.execute(
-            "UPDATE conversations SET title = %s WHERE id = %s"
-            " RETURNING id, title, created_at, updated_at",
+            "UPDATE conversations SET title = %s WHERE id = %s RETURNING id",
             (request.title.strip(), conversation_id),
         ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Gesprek niet gevonden.")
-    return row
+        if row is None:
+            raise HTTPException(status_code=404, detail="Gesprek niet gevonden.")
+        return _get(conn, conversation_id)
 
 
 @router.delete("/{conversation_id}", status_code=204)

@@ -2,7 +2,7 @@
 //
 //   1. expand abbreviations          NAS     POST /api/expand
 //   2. embed the expanded question   Ollama  /api/embed (model of the index)
-//   3. search + auto-merge           NAS     POST /api/retrieve
+//   3. search + auto-merge           NAS     POST /api/retrieve (in the conversation's index)
 //   4. stream the answer             Ollama  /api/chat
 //
 // host/rag.py is the same pipeline in Python, for the evaluation.
@@ -53,6 +53,8 @@ export function buildMessages(
 
 export interface AskOptions {
   question: string;
+  /** The conversation's index: abbreviations and sources come only from it. */
+  indexId: number;
   history: ChatMessage[];
   config: ServerConfig;
   ollamaUrl: string;
@@ -83,7 +85,7 @@ export async function ask(o: AskOptions): Promise<AskResult> {
   let expansions: ExpansionSource[] = [];
   if (o.expandQuery) {
     o.onStage("expanding");
-    ({ query, expansions } = await api.expand(o.question, o.signal));
+    ({ query, expansions } = await api.expand(o.question, o.indexId, o.signal));
     o.onExpansions(query, expansions);
   }
 
@@ -94,7 +96,7 @@ export async function ask(o: AskOptions): Promise<AskResult> {
   });
 
   o.onStage("retrieving");
-  const { contexts } = await api.retrieve(embedding, o.config.embed_model, o.signal);
+  const { contexts } = await api.retrieve(embedding, o.config.embed_model, o.indexId, o.signal);
   o.onSources(contexts);
 
   // No sources: refuse rather than let the model make something up.

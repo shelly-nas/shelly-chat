@@ -42,7 +42,7 @@ van de gebruiker, en de browser praat daar zelf mee.
 | Map | Draait op | Rol |
 |---|---|---|
 | `client/` | NAS (nginx) | React + MUI. Roept `/api` op de NAS aan **én** Ollama op `localhost:11434` (`src/lib/ollama.ts`, `src/lib/rag.ts`) |
-| `server/` | NAS | FastAPI zonder AI-modellen: afkortingen (`/api/expand`), vectorzoeken + auto-merge (`/api/retrieve`), gesprekken, index-API (`/api/index/*`, met `INDEX_TOKEN`), en documenten lezen, uitpakken + knippen (`/api/index/files`, `/api/index/prepare`, LlamaIndex' tekstsplitter), originelen serveren (`/api/files/…`) |
+| `server/` | NAS | FastAPI zonder AI-modellen: afkortingen (`/api/expand`), vectorzoeken + auto-merge (`/api/retrieve`), gesprekken, indexen en index-API (`/api/indexes/*`, `/api/index/*`, schrijven met `INDEX_TOKEN`), systeemprompt (`/api/settings`), en documenten opsommen, lezen, uitpakken + knippen (`/api/indexes/{id}/files`, `/api/index/prepare`, LlamaIndex' tekstsplitter), originelen serveren (`/api/files/…`) |
 | `database/` | NAS | Postgres 16 + **pgvector** (in `database/Dockerfile` gebouwd op `postgres:16-alpine`, zodat uid 70 blijft). CI gebruikt `pgvector/pgvector:0.8.0-pg16`; houd de versies gelijk |
 | `host/` | computer met Ollama | CLI-indexer en RAGAS-evaluatie. Geen Docker, niet in de deploy |
 
@@ -50,10 +50,19 @@ Vraagflow: `POST /api/expand` → Ollama `/api/embed` (model van de index, `GET 
 `POST /api/retrieve` → Ollama `/api/chat` (streaming NDJSON) → `POST /api/conversations`.
 `host/rag.py` is dezelfde flow in Python. Wijzig je de prompt of de stappen, doe dat dan in beide.
 
-Indexflow (scherm Index, `client/src/lib/indexer.ts`): `GET /api/index/files` (NAS somt de documenten in de bronnen op)
-→ `POST /api/index/prepare` (NAS leest, pakt uit, hasht, knipt; ongewijzigd stopt hier) → Ollama `/api/embed` voor
-de leaves → `PUT /api/index/documents`.
+Er zijn meerdere benoemde indexen (`indexes`, met `index_sources` en gitignore-achtige `ignore_patterns`, beheerd via
+`/api/indexes/*`). Documenten en chunks zijn gedeeld; `index_documents` zegt welk document in welke index zit, en een
+document zonder index wordt opgeruimd. Embeddingmodel en chunkgroottes (`index_meta`) gelden voor alle indexen samen.
+`/api/expand`, `/api/retrieve` en `POST /api/conversations` krijgen een `index_id`; een gesprek houdt zijn index.
+
+Indexflow (scherm Indexen, `client/src/lib/indexer.ts`), per index: `GET /api/indexes/{id}/files` (NAS somt de
+documenten in de bronnen op, na de ignore-patronen) → `POST /api/index/prepare` (NAS leest, pakt uit, hasht, knipt;
+ongewijzigd komt direct in de index en stopt hier) → Ollama `/api/embed` voor de leaves → `PUT /api/index/documents`
+→ `POST /api/indexes/{id}/prune` (alleen als elke bron gelezen kon worden).
 `host/indexing/indexer.py` is dezelfde run als CLI. Wijzig je de regels (reset, verwijderen), doe dat dan in beide.
+
+De systeemprompt staat in `app_settings` (`GET/PUT /api/settings`, zonder rij geldt `LLM_SYSTEM_PROMPT`) en komt via
+`GET /api/config` bij de browser en `host/rag.py`. Er is geen geschiedenis: elke vraag gebruikt de laatste.
 
 Documenten staan in de documentenmap op de NAS (`DOCUMENTS_DIR`, alleen-lezen gemount op `/data/documents`).
 Bronnen en `file_path`s zijn altijd relatief aan die map; ga voor elk pad door `app/files.py` (`resolve`), dat

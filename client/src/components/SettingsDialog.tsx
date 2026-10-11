@@ -27,6 +27,7 @@ import { useAppState } from "../appState";
 import { hasModel } from "../lib/ollama";
 import { DEFAULT_SETTINGS } from "../lib/settings";
 import OllamaHelp from "./OllamaHelp";
+import SystemPromptEditor from "./SystemPromptEditor";
 import { StatusDot } from "./OllamaStatus";
 
 function Section({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
@@ -116,7 +117,7 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
       <DialogTitle variant="h2" component="h1" sx={{ px: 6, pt: 6, pb: 2 }}>
         Instellingen
         <Typography variant="body2" sx={{ mt: 2 }}>
-          Wijzigingen gelden direct en alleen in deze browser.
+          Ollama-instellingen gelden direct en alleen in deze browser; de systeemprompt geldt voor iedereen.
         </Typography>
       </DialogTitle>
       <DialogContent sx={{ px: 6, display: "flex", flexDirection: "column", gap: 6, bgcolor: "background.default", pt: "24px !important" }}>
@@ -205,8 +206,15 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
         </Section>
 
         <Section
-          title="Index op de NAS"
-          subtitle="Bronnen en indexeren staan op het scherm Index in de zijbalk."
+          title="Systeemprompt"
+          subtitle="De instructie die het taalmodel bij elke vraag meekrijgt. Bewaard op de NAS."
+        >
+          <SystemPromptEditor open={open} />
+        </Section>
+
+        <Section
+          title="Documenten op de NAS"
+          subtitle="Indexen, bronnen en indexeren staan onder Indexen in de zijbalk."
         >
           {index === null ? (
             <Typography variant="body2">Laden…</Typography>
@@ -214,6 +222,7 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
             <Alert severity="info">Er is nog niets geïndexeerd.</Alert>
           ) : (
             <Stack spacing={2}>
+              <Fact label="Indexen" value={index.indexes.toLocaleString("nl-NL")} />
               <Fact label="Documenten" value={index.documents.toLocaleString("nl-NL")} />
               <Fact label="Chunks" value={index.chunks.toLocaleString("nl-NL")} />
               <Fact label="Afkortingen" value={index.abbreviations.toLocaleString("nl-NL")} />

@@ -13,7 +13,7 @@ from fastapi import FastAPI
 
 from app import __version__, db
 from app.migrations import run_migrations
-from app.routes import chat, conversations, files, index
+from app.routes import chat, conversations, files, index, indexes, settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,4 +41,6 @@ def health():
 app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(index.router)
+app.include_router(indexes.router)
+app.include_router(settings.router)
 app.include_router(files.router)

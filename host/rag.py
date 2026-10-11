@@ -4,7 +4,7 @@ Same steps as client/src/lib/rag.ts: expand on the NAS, embed with the local
 Ollama, retrieve on the NAS, generate with the local Ollama. Used by the
 evaluation in tests/eval and handy for trying a question from the terminal:
 
-    python rag.py "Hoe werkt het Renovate-proces?"
+    python rag.py "Mijn BV" "Hoe werkt het Renovate-proces?"
 """
 
 import json
@@ -34,16 +34,26 @@ def build_qa_prompt(contexts: list[dict], query: str) -> str:
     return f"SOURCES:\n{build_context_string(contexts)}\n\nQUESTION: {query}\n\nANSWER:"
 
 
-def ask(question: str, history: list[dict] | None = None, llm_model: str | None = None) -> dict:
-    """Answer one question; returns answer, contexts, expansions and timing."""
+def index_id(name: str) -> int:
+    """The id of a named index."""
+    indexes = requests.get(f"{SHELLY_CHAT_URL}/api/indexes", timeout=10).json()["indexes"]
+    for index in indexes:
+        if index["name"].lower() == name.lower():
+            return index["id"]
+    raise RuntimeError(f"Er is geen index '{name}'. Er zijn: {', '.join(i['name'] for i in indexes) or 'geen'}.")
+
+
+def ask(question: str, index: str, history: list[dict] | None = None, llm_model: str | None = None) -> dict:
+    """Answer one question from the named index; returns answer, contexts, expansions and timing."""
     history = history or []
+    idx = index_id(index)
     config = requests.get(f"{SHELLY_CHAT_URL}/api/config", timeout=10).json()
     if not config["embed_model"]:
         raise RuntimeError("Er is nog niets geïndexeerd.")
     model = llm_model or os.getenv("LLM_MODEL_NAME") or config["llm_model"]
 
     expanded = requests.post(
-        f"{SHELLY_CHAT_URL}/api/expand", json={"query": question}, timeout=10
+        f"{SHELLY_CHAT_URL}/api/expand", json={"query": question, "index_id": idx}, timeout=10
     ).json()
     query = expanded["query"]
 
@@ -55,7 +65,7 @@ def ask(question: str, history: list[dict] | None = None, llm_model: str | None 
 
     resp = requests.post(
         f"{SHELLY_CHAT_URL}/api/retrieve",
-        json={"embedding": embedding, "embed_model": config["embed_model"]},
+        json={"embedding": embedding, "embed_model": config["embed_model"], "index_id": idx},
         timeout=60,
     )
     resp.raise_for_status()
@@ -93,9 +103,9 @@ def ask(question: str, history: list[dict] | None = None, llm_model: str | None 
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        raise SystemExit('Gebruik: python rag.py "je vraag"')
-    result = ask(" ".join(sys.argv[1:]))
+    if len(sys.argv) < 3:
+        raise SystemExit('Gebruik: python rag.py "Naam van de index" "je vraag"')
+    result = ask(" ".join(sys.argv[2:]), index=sys.argv[1])
     print(result["answer"])
     print()
     for c in result["contexts"]:

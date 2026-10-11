@@ -23,7 +23,7 @@ Usage (from host/, with requirements-eval.txt installed):
   python -m tests.eval.test_rag_eval     # standalone with printed report
 
 Pre-requisites:
-  - shelly-chat reachable at SHELLY_CHAT_URL, with documents indexed
+  - shelly-chat reachable at SHELLY_CHAT_URL, with the index EVAL_INDEX filled
   - Ollama running with the embedding model of the index and LLM_MODEL_NAME
 """
 
@@ -38,6 +38,8 @@ import rag
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:latest")
 LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gemma4:latest")
+# The named index the questions are asked of.
+EVAL_INDEX = os.getenv("EVAL_INDEX", "Alle documenten")
 
 # ── thresholds ────────────────────────────────────────────────────────────────
 THRESHOLD_FAITHFULNESS = float(os.getenv("EVAL_FAITHFULNESS_THRESHOLD", "0.7"))
@@ -53,7 +55,7 @@ DATASET_PATH = pathlib.Path(__file__).parent / "eval_dataset.json"
 def _run_pipeline(question: str) -> tuple[str, list[str]]:
     """Answer one question; return the answer and the retrieved chunk texts."""
     try:
-        result = rag.ask(question, llm_model=LLM_MODEL_NAME)
+        result = rag.ask(question, index=EVAL_INDEX, llm_model=LLM_MODEL_NAME)
     except requests.RequestException as exc:
         pytest.fail(f"Pipeline failed for {question!r}: {exc}")
     return result["answer"], [c["content"] for c in result["contexts"]]

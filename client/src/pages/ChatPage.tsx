@@ -1,10 +1,16 @@
 import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
+import SourceOutlinedIcon from "@mui/icons-material/SourceOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import {
   Alert,
   Box,
   Button,
+  Chip,
   Dialog,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
   IconButton,
   Skeleton,
   Snackbar,
@@ -55,7 +61,7 @@ export default function ChatPage() {
   const theme = useTheme();
   const wide = useMediaQuery(theme.breakpoints.up("lg"));
   const app = useAppState();
-  const { config, settings, llmModel, refreshConversations, conversations, setSettingsOpen } = app;
+  const { config, settings, updateSettings, llmModel, refreshConversations, conversations, setSettingsOpen, indexes } = app;
 
   const [messages, setMessages] = useState<ViewMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -66,6 +72,8 @@ export default function ChatPage() {
   const [sourcesFor, setSourcesFor] = useState<string | null>(null);
   const [sourcesDialog, setSourcesDialog] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // An existing conversation's index, fixed since it started (null: deleted).
+  const [conversationIndexId, setConversationIndexId] = useState<number | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   // Set right after this page created a conversation, so navigating to its
@@ -90,6 +98,7 @@ export default function ChatPage() {
     try {
       const conversation = await api.conversation(id);
       setMessages(conversation.messages);
+      setConversationIndexId(conversation.index_id);
       const lastWithSources = [...conversation.messages].reverse().find((m) => m.sources?.length);
       setSourcesFor(lastWithSources?.id ?? null);
     } catch (err) {
@@ -111,8 +120,15 @@ export default function ChatPage() {
   const update = (msgId: string, patch: Partial<ViewMessage> | ((m: ViewMessage) => Partial<ViewMessage>)) =>
     setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, ...(typeof patch === "function" ? patch(m) : patch) } : m)));
 
+  // A new conversation starts with the index chosen last time, if it still exists.
+  const chosenIndexId =
+    indexes?.find((i) => i.id === settings.lastIndexId)?.id ?? indexes?.[0]?.id ?? null;
+  const indexId = id ? conversationIndexId : chosenIndexId;
+  const activeIndex = indexes?.find((i) => i.id === indexId) ?? null;
+  const indexGone = Boolean(id) && !loading && !loadError && conversationIndexId === null;
+
   const send = async (question: string, base: ViewMessage[] = messages) => {
-    if (!question.trim() || busy || !config) return;
+    if (!question.trim() || busy || !config || indexId === null) return;
     const history = base.filter((m) => !m.error && !m.pending && !m.stopped);
     const userId = crypto.randomUUID();
     const answerId = crypto.randomUUID();
@@ -129,6 +145,7 @@ export default function ChatPage() {
     try {
       const result = await ask({
         question,
+        indexId,
         history,
         config,
         ollamaUrl: settings.ollamaUrl,
@@ -160,8 +177,9 @@ export default function ChatPage() {
         if (id) {
           await api.appendMessages(id, toSave);
         } else {
-          const created = await api.createConversation(toSave);
+          const created = await api.createConversation(indexId, toSave);
           createdRef.current = created.id;
+          setConversationIndexId(indexId);
           navigate(`/c/${created.id}`, { replace: true });
         }
         refreshConversations();
@@ -219,14 +237,46 @@ export default function ChatPage() {
               {title || <Skeleton width={240} />}
             </Typography>
             <Typography variant="body2" sx={{ mt: 2 }}>
-              Antwoorden van {llmModel || "Ollama"} op je eigen computer, met bronnen van de NAS.
+              Antwoorden van {llmModel || "Ollama"} op je eigen computer, met bronnen uit {activeIndex ? `“${activeIndex.name}”` : "de NAS"}.
             </Typography>
           </Box>
-          {!wide && selectedSources.length > 0 && (
-            <Button variant="outlined" startIcon={<ArticleOutlinedIcon />} onClick={() => setSourcesDialog(true)}>
-              Bronnen ({selectedSources.length})
-            </Button>
-          )}
+          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+            {!id ? (
+              <FormControl size="small" sx={{ minWidth: 220 }} disabled={!indexes?.length || busy}>
+                <InputLabel id="chat-index">Doorzoek index</InputLabel>
+                <Select
+                  labelId="chat-index"
+                  value={chosenIndexId ?? ""}
+                  displayEmpty
+                  sx={{ height: 40, "& .MuiSelect-select": { display: "flex", alignItems: "center", height: "100%", py: 0 } }}
+                  onChange={(e) => updateSettings({ lastIndexId: Number(e.target.value) })}
+                >
+                  {!indexes?.length && <MenuItem value="">Nog geen indexen</MenuItem>}
+                  {indexes?.map((i) => (
+                    <MenuItem key={i.id} value={i.id}>
+                      {i.name} ({i.documents})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : (
+              !loading && !loadError && (
+                <Chip
+                  icon={<SourceOutlinedIcon aria-hidden />}
+                  label={activeIndex ? `Index: ${activeIndex.name}` : "Index verwijderd"}
+                  color={activeIndex ? "default" : "error"}
+                  variant="outlined"
+                  sx={{ height: 32 }}
+                  title="De index van een gesprek ligt vast zodra het begint."
+                />
+              )
+            )}
+            {!wide && selectedSources.length > 0 && (
+              <Button variant="outlined" startIcon={<ArticleOutlinedIcon />} onClick={() => setSourcesDialog(true)}>
+                Bronnen ({selectedSources.length})
+              </Button>
+            )}
+          </Stack>
         </Stack>
 
         {/* Messages */}
@@ -260,7 +310,7 @@ export default function ChatPage() {
                     de NAS zoekt de bronnen en bewaart het gesprek.
                   </Typography>
                 </Box>
-                <Readiness />
+                <Readiness index={activeIndex} />
               </Stack>
             )}
             {messages.map((m) => (
@@ -280,6 +330,15 @@ export default function ChatPage() {
 
         {/* Composer */}
         <Box sx={{ px: { xs: 6, md: 8 }, pb: { xs: 4, md: 6 }, pt: 2 }}>
+          {indexGone && (
+            <Alert
+              severity="warning"
+              sx={{ maxWidth: 760, mx: "auto", mb: 3 }}
+              action={<Button size="small" variant="text" onClick={() => navigate("/")}>Nieuw gesprek</Button>}
+            >
+              De index van dit gesprek is verwijderd. Je kunt het nog lezen, maar geen vragen meer stellen.
+            </Alert>
+          )}
           <Box
             component="form"
             onSubmit={(e) => {
@@ -301,7 +360,7 @@ export default function ChatPage() {
               multiline
               maxRows={6}
               fullWidth
-              disabled={!config}
+              disabled={!config || indexId === null}
               inputProps={{ "aria-label": "Je vraag", maxLength: config?.query_max_length }}
             />
             {busy ? (
@@ -309,7 +368,7 @@ export default function ChatPage() {
                 Stoppen
               </Button>
             ) : (
-              <Button type="submit" variant="contained" disabled={!input.trim() || !config} sx={{ flexShrink: 0 }}>
+              <Button type="submit" variant="contained" disabled={!input.trim() || !config || indexId === null} sx={{ flexShrink: 0 }}>
                 Versturen
               </Button>
             )}

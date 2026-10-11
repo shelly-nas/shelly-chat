@@ -1,6 +1,6 @@
 """Vector search with auto-merging, on a query embedding made by the browser.
 
-1. Exact cosine search over the leaf chunks (top-K).
+1. Exact cosine search over the leaf chunks of the conversation's index (top-K).
 2. Auto-merge: when more than AUTOMERGE_THRESHOLD of a parent's leaves were
    retrieved, the parent replaces them, scored as their average. This is the
    merge step of LlamaIndex's AutoMergingRetriever, which the previous
@@ -113,7 +113,7 @@ def _hit(row: dict, score: float = 0.0) -> Hit:
     )
 
 
-def retrieve(embedding: list[float], top_k: int, top_n: int, threshold: float) -> list[dict]:
+def retrieve(embedding: list[float], index_id: int, top_k: int, top_n: int, threshold: float) -> list[dict]:
     vector = db.vector_literal(embedding)
     with db.connection() as conn:
         meta = conn.execute("SELECT embed_dimensions FROM index_meta").fetchone()
@@ -130,10 +130,11 @@ def retrieve(embedding: list[float], top_k: int, top_n: int, threshold: float) -
             SELECT {_HIT_COLUMNS}, 1 - (c.embedding <=> %(v)s::vector) AS score
             FROM chunks c JOIN documents d ON d.id = c.document_id
             WHERE c.is_leaf AND c.embedding IS NOT NULL
+              AND c.document_id IN (SELECT document_id FROM index_documents WHERE index_id = %(i)s)
             ORDER BY c.embedding <=> %(v)s::vector
             LIMIT %(k)s
             """,
-            {"v": vector, "k": top_k},
+            {"v": vector, "k": top_k, "i": index_id},
         ).fetchall()
         hits = [_hit(r, float(r["score"])) for r in rows]
 
@@ -161,9 +162,10 @@ def retrieve(embedding: list[float], top_k: int, top_n: int, threshold: float) -
     return [to_context(h, i + 1) for i, h in enumerate(ranked)]
 
 
-def default_retrieve(embedding: list[float]) -> list[dict]:
+def default_retrieve(embedding: list[float], index_id: int) -> list[dict]:
     return retrieve(
         embedding,
+        index_id,
         top_k=config.RETRIEVAL_TOP_K,
         top_n=config.CONTEXT_TOP_N,
         threshold=config.AUTOMERGE_THRESHOLD,
