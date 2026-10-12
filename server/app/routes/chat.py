@@ -106,6 +106,7 @@ def retrieve(request: RetrieveRequest):
             top_k=s["retrieval_top_k"],
             top_n=s["context_top_n"],
             threshold=s["automerge_threshold"],
+            min_similarity=s["min_similarity"],
         )
     except retrieval.DimensionMismatch as exc:
         raise HTTPException(status_code=409, detail=str(exc))

@@ -52,6 +52,9 @@ MAX_FILE_MB = _int("MAX_FILE_MB", 50)
 RETRIEVAL_TOP_K = _int("RETRIEVAL_TOP_K", 50)
 CONTEXT_TOP_N = _int("CONTEXT_TOP_N", 10)
 AUTOMERGE_THRESHOLD = _float("AUTOMERGE_THRESHOLD", 0.5)
+# Leaves with a lower cosine similarity are dropped; nothing left means the
+# no-answer text. 0 is off. The right value depends on the embedding model.
+MIN_SIMILARITY = _float("MIN_SIMILARITY", 0.0)
 QUERY_MAX_LENGTH = _int("QUERY_MAX_LENGTH", 4000)
 
 DEFAULT_SYSTEM_PROMPT = """Beantwoord vragen UITSLUITEND op basis van de verstrekte BRONNEN [1], [2], etc.

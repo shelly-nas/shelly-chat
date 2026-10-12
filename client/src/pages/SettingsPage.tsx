@@ -92,6 +92,15 @@ const FIELDS: Record<Key, Field> = {
     max: 1,
     step: 0.05,
   },
+  min_similarity: {
+    label: "Minimale relevantie",
+    help:
+      "Chunks met een lagere gelijkenis tellen niet mee; blijft er niets over, dan volgt het antwoord zonder bronnen. 0 is uit. " +
+      "0,6 hoort bij \"Relevantie 60%\" bij de bronnen van een antwoord; kijk daar wat relevante stukken halen, dat verschilt per embeddingmodel.",
+    min: 0,
+    max: 1,
+    step: 0.01,
+  },
   history_max_turns: {
     label: "Gespreksgeheugen",
     help: "Zoveel eerdere vragen en antwoorden gaan mee naar het taalmodel.",
@@ -133,7 +142,7 @@ const CHUNK_KEYS: Key[] = ["parent_chunk_size", "child_chunk_size", "parent_chun
 const ANSWER_GROUPS: { title: string; keys: Key[] }[] = [
   { title: "Instructies", keys: ["system_prompt", "no_answer_response"] },
   { title: "Taalmodel", keys: ["llm_temperature", "llm_top_p", "llm_top_k", "llm_num_ctx", "llm_max_tokens"] },
-  { title: "Zoeken", keys: ["retrieval_top_k", "context_top_n", "automerge_threshold"] },
+  { title: "Zoeken", keys: ["retrieval_top_k", "context_top_n", "automerge_threshold", "min_similarity"] },
   { title: "Gesprek", keys: ["history_max_turns", "query_max_length"] },
 ];
 const INDEX_GROUPS: { title: string; keys: Key[] }[] = [

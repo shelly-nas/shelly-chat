@@ -113,7 +113,13 @@ def _hit(row: dict, score: float = 0.0) -> Hit:
     )
 
 
-def retrieve(embedding: list[float], index_id: int, top_k: int, top_n: int, threshold: float) -> list[dict]:
+def retrieve(
+    embedding: list[float], index_id: int, top_k: int, top_n: int, threshold: float, min_similarity: float = 0.0
+) -> list[dict]:
+    """The top_n contexts for a question; leaves below min_similarity never count.
+
+    With nothing left, the answer is the no-answer text and the model is not asked.
+    """
     vector = db.vector_literal(embedding)
     with db.connection() as conn:
         meta = conn.execute("SELECT embed_dimensions FROM index_meta").fetchone()
@@ -136,7 +142,9 @@ def retrieve(embedding: list[float], index_id: int, top_k: int, top_n: int, thre
             """,
             {"v": vector, "k": top_k, "i": index_id},
         ).fetchall()
-        hits = [_hit(r, float(r["score"])) for r in rows]
+        hits = [_hit(r, float(r["score"])) for r in rows if float(r["score"]) >= min_similarity]
+        if not hits:
+            return []
 
         parent_ids = list({h.parent_id for h in hits if h.parent_id})
         parents: dict[str, Hit] = {}

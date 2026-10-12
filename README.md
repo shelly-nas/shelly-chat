@@ -83,7 +83,7 @@ Het scherm **Instellingen** heeft drie delen:
 | Deel | Waar bewaard | Wat |
 |---|---|---|
 | **Deze browser** | localStorage | Ollama-adres, taalmodel, denken uitzetten, modellen ontladen, afkortingen uitschrijven, index-token |
-| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, kandidaten, bronnen per vraag, merge-drempel, gespreksgeheugen, maximale vraaglengte |
+| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, gespreksgeheugen, maximale vraaglengte |
 | **Indexeren** | NAS, voor iedereen | grote en kleine chunks, overlap, maximale bestandsgrootte |
 
 Wat op de NAS staat, geldt voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste waarde.
@@ -203,6 +203,7 @@ host/        CLI-indexer en evaluatie, draaien naast Ollama                     
 Dit zijn alleen standaardwaarden: in de app pas je ze aan onder **Instellingen**. Dat geldt ook voor
 `PARENT_CHUNK_SIZE` (1500), `CHILD_CHUNK_SIZE` (een kwart daarvan), `PARENT_CHUNK_OVERLAP` (300),
 `MAX_FILE_MB` (50), `RETRIEVAL_TOP_K` (50), `CONTEXT_TOP_N` (10), `AUTOMERGE_THRESHOLD` (0.5),
+`MIN_SIMILARITY` (0, uit),
 `QUERY_MAX_LENGTH` (4000), `CHAT_HISTORY_MAX_TURNS` (10), `LLM_TEMPERATURE` (1.0), `LLM_TOP_P` (0.95),
 `LLM_TOP_K` (64), `LLM_NUM_CTX` (32000) en `LLM_MAX_TOKENS` (32000), met hun standaard in
 `server/app/config.py`.

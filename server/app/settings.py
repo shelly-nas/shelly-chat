@@ -33,6 +33,7 @@ SETTINGS: dict[str, Setting] = {
     "retrieval_top_k": Setting(int, config.RETRIEVAL_TOP_K, 1, 500),
     "context_top_n": Setting(int, config.CONTEXT_TOP_N, 1, 100),
     "automerge_threshold": Setting(float, config.AUTOMERGE_THRESHOLD, 0, 1),
+    "min_similarity": Setting(float, config.MIN_SIMILARITY, 0, 1),
     "history_max_turns": Setting(int, config.CHAT_HISTORY_MAX_TURNS, 0, 100),
     "query_max_length": Setting(int, config.QUERY_MAX_LENGTH, 100, 100_000),
     # Indexing: a change to the chunk sizes rebuilds every index.

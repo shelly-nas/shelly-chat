@@ -122,6 +122,7 @@ export interface SharedValues {
   retrieval_top_k: number;
   context_top_n: number;
   automerge_threshold: number;
+  min_similarity: number;
   history_max_turns: number;
   query_max_length: number;
   parent_chunk_size: number;

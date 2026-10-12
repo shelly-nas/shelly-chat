@@ -156,6 +156,13 @@ def test_shared_documents_and_search_per_index(client):
     assert "team/renovate.docx" not in search(b["id"], (0, 0, 1))
     assert set(search(b["id"])) == {"bv/brp.md"}
 
+    # A minimum similarity drops weak matches; with none left there are no sources.
+    client.put("/api/settings", json={"min_similarity": 0.5}, headers=AUTH)
+    assert set(search(a["id"], (0, 0, 1))) == {"team/renovate.docx"}
+    assert search(a["id"], (0, 1, 0)) == []
+    client.put("/api/settings", json={"min_similarity": None}, headers=AUTH)
+    assert len(search(a["id"], (0, 1, 0))) > 0
+
     # Abbreviations come only from the conversation's index.
     q = "Wat staat er in de brp?"
     assert client.post("/api/expand", json={"query": q, "index_id": b["id"]}).json()["query"] == (
