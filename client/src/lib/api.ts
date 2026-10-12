@@ -10,6 +10,7 @@ import type {
   IndexSettings,
   IndexSource,
   SharedSettings,
+  SharedValues,
   IndexStatus,
   PrepareResult,
   ServerConfig,
@@ -147,6 +148,7 @@ export const api = {
 
   // Shared settings
   settings: () => request<SharedSettings>("/api/settings"),
-  putSettings: (change: { system_prompt: string | null }) =>
-    request<SharedSettings>("/api/settings", { method: "PUT", body: JSON.stringify(change) }),
+  /** Only the keys to change; null goes back to the default. */
+  putSettings: (token: string, changes: Partial<Record<keyof SharedValues, string | number | null>>) =>
+    request<SharedSettings>("/api/settings", { method: "PUT", body: JSON.stringify(changes), headers: bearer(token) }),
 };

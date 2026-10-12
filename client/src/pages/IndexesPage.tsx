@@ -32,6 +32,7 @@ import { useAppState } from "../appState";
 import {
   Fact,
   Section,
+  TokenField,
   formatDate,
   useBlockers,
   useEmbedModel,
@@ -87,24 +88,7 @@ export default function IndexesPage() {
 
   const tokenCard = (
     <Section title="Toegang" subtitle="Nodig om indexen te maken, te wijzigen en te indexeren. Het token blijft in deze browser.">
-      <TextField
-        label="Index-token van de NAS"
-        type="password"
-        autoComplete="off"
-        value={settings.indexToken}
-        onChange={(e) => updateSettings({ indexToken: e.target.value.trim() })}
-        error={tokenState === "wrong"}
-        helperText={
-          tokenState === "ok"
-            ? "Klopt."
-            : tokenState === "wrong"
-              ? "Dit token klopt niet. Het staat als INDEX_TOKEN in de GitHub-secrets."
-              : tokenState === "checking"
-                ? "Controleren…"
-                : "INDEX_TOKEN uit de GitHub-secrets."
-        }
-        sx={{ maxWidth: 420 }}
-      />
+      <TokenField />
     </Section>
   );
 

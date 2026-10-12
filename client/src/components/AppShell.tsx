@@ -39,7 +39,6 @@ import { useColorMode } from "../colorMode";
 import { api } from "../lib/api";
 import type { ConversationSummary } from "../lib/types";
 import OllamaStatus from "./OllamaStatus";
-import SettingsDialog from "./SettingsDialog";
 
 const SIDEBAR_WIDTH = 248;
 
@@ -165,10 +164,15 @@ function ConversationList({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
-function Sidebar({ onNavigate, onOpenSettings }: { onNavigate: () => void; onOpenSettings: () => void }) {
+function Sidebar({ onNavigate }: { onNavigate: () => void }) {
   const navigate = useNavigate();
   const { mode, toggle } = useColorMode();
   const onIndex = useMatch("/index/*") !== null;
+  const onSettings = useMatch("/instellingen") !== null;
+  const openSettings = () => {
+    navigate("/instellingen");
+    onNavigate();
+  };
   const { indexes } = useAppState();
 
   return (
@@ -224,16 +228,12 @@ function Sidebar({ onNavigate, onOpenSettings }: { onNavigate: () => void; onOpe
             </Typography>
           )}
         </ListItemButton>
-        <OllamaStatus onClick={onOpenSettings} />
+        <OllamaStatus onClick={openSettings} />
         <Stack direction="row" alignItems="center" spacing={1}>
-          <Button
-            variant="text"
-            startIcon={<SettingsOutlinedIcon fontSize="small" />}
-            onClick={onOpenSettings}
-            sx={{ flex: 1, justifyContent: "flex-start", px: 3 }}
-          >
-            Instellingen
-          </Button>
+          <ListItemButton selected={onSettings} onClick={openSettings} sx={{ flex: 1 }}>
+            <SettingsOutlinedIcon fontSize="small" aria-hidden />
+            <ListItemText primary="Instellingen" primaryTypographyProps={{ fontSize: 14, fontWeight: "inherit", color: "inherit" }} />
+          </ListItemButton>
           <Tooltip title={mode === "dark" ? "Lichte modus" : "Donkere modus"}>
           <IconButton aria-label={mode === "dark" ? "Lichte modus" : "Donkere modus"} onClick={toggle}>
             {mode === "dark" ? <LightModeOutlinedIcon fontSize="small" /> : <DarkModeOutlinedIcon fontSize="small" />}
@@ -249,13 +249,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const theme = useTheme();
   const narrow = useMediaQuery(theme.breakpoints.down("md"));
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const { settingsOpen, setSettingsOpen } = useAppState();
-  const openSettings = () => {
-    setDrawerOpen(false);
-    setSettingsOpen(true);
-  };
-
-  const sidebar = <Sidebar onNavigate={() => setDrawerOpen(false)} onOpenSettings={openSettings} />;
+  const sidebar = <Sidebar onNavigate={() => setDrawerOpen(false)} />;
 
   return (
     <Box sx={{ display: "flex", height: "100dvh", bgcolor: "background.default" }}>
@@ -282,7 +276,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         )}
         {children}
       </Box>
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Box>
   );
 }

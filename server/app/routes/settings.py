@@ -1,36 +1,37 @@
-"""Shared settings: the system prompt every conversation uses."""
+"""Shared settings: how answers are made and documents are indexed.
 
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
+They apply to everyone, so changing them needs the index token. Reading them
+does not: the browser needs them to answer a question.
+"""
 
-from app import config, db, settings
+from fastapi import APIRouter, Depends, HTTPException
+
+from app import db, settings
+from app.routes.index import require_token
 
 router = APIRouter(prefix="/api/settings")
 
 
-def _current(conn) -> dict:
-    stored = settings.get(conn, settings.SYSTEM_PROMPT)
+def _response(values: dict, stored: dict) -> dict:
     return {
-        "system_prompt": stored or config.LLM_SYSTEM_PROMPT,
-        "system_prompt_is_default": stored is None,
-        "default_system_prompt": config.LLM_SYSTEM_PROMPT,
+        "values": values,
+        "defaults": {key: s.default for key, s in settings.SETTINGS.items()},
+        "changed": sorted(stored),
     }
 
 
 @router.get("")
 def get_settings():
     with db.connection() as conn:
-        return _current(conn)
+        return _response(settings.current(conn), settings.stored(conn))
 
 
-class SettingsChange(BaseModel):
-    # Empty or null goes back to LLM_SYSTEM_PROMPT. {today} becomes the date.
-    system_prompt: str | None = Field(default=None, max_length=20_000)
-
-
-@router.put("")
-def put_settings(request: SettingsChange):
-    prompt = (request.system_prompt or "").strip()
+@router.put("", dependencies=[Depends(require_token)])
+def put_settings(changes: dict[str, object]):
+    """{key: value} for the settings to change; null goes back to the default."""
     with db.connection() as conn:
-        settings.put(conn, settings.SYSTEM_PROMPT, prompt or None)
-        return _current(conn)
+        try:
+            values = settings.update(conn, changes)
+        except settings.InvalidSetting as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return _response(values, settings.stored(conn))

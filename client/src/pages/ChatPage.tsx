@@ -62,7 +62,7 @@ export default function ChatPage() {
   const theme = useTheme();
   const wide = useMediaQuery(theme.breakpoints.up("lg"));
   const app = useAppState();
-  const { config, settings, updateSettings, llmModel, refreshConversations, conversations, setSettingsOpen, indexes } = app;
+  const { config, settings, updateSettings, llmModel, refreshConversations, conversations, indexes } = app;
 
   const [messages, setMessages] = useState<ViewMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -153,6 +153,7 @@ export default function ChatPage() {
         llmModel,
         expandQuery: settings.expandQuery,
         unloadModels: settings.unloadModels,
+        think: !settings.disableThinking,
         signal: controller.signal,
         onStage: setStage,
         onExpansions: (effective_query, expansions) => update(userId, { effective_query, expansions }),
@@ -322,7 +323,7 @@ export default function ChatPage() {
                 sourcesSelected={m.id === sourcesFor}
                 onShowSources={() => showSources(m.id)}
                 onRetry={retry}
-                onHelp={() => setSettingsOpen(true)}
+                onHelp={() => navigate("/instellingen")}
               />
             ))}
             <div ref={endRef} />

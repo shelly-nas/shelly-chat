@@ -5,6 +5,7 @@ import AppShell from "./components/AppShell";
 import ChatPage from "./pages/ChatPage";
 import IndexDetailPage from "./pages/IndexDetailPage";
 import IndexesPage from "./pages/IndexesPage";
+import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/c/:id" element={<ChatPage />} />
           <Route path="/index" element={<IndexesPage />} />
           <Route path="/index/:id" element={<IndexDetailPage />} />
+          <Route path="/instellingen" element={<SettingsPage />} />
           <Route path="*" element={<ChatPage />} />
         </Routes>
       </AppShell>

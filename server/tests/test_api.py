@@ -230,19 +230,46 @@ def test_conversations_keep_their_index(client):
     assert client.get(f"/api/conversations/{cid}").status_code == 404
 
 
-def test_system_prompt_setting(client):
-    default = client.put("/api/settings", json={"system_prompt": None}).json()
-    assert default["system_prompt_is_default"] is True
-    assert default["system_prompt"] == default["default_system_prompt"]
+def test_shared_settings(client, docs_root):
+    reset = {k: None for k in client.get("/api/settings").json()["values"]}
+    assert client.put("/api/settings", json={"system_prompt": "x"}).status_code == 401
+    initial = client.put("/api/settings", json=reset, headers=AUTH).json()
+    assert initial["changed"] == [] and initial["values"] == initial["defaults"]
+    assert "Nederlands" in initial["values"]["system_prompt"]
 
-    r = client.put("/api/settings", json={"system_prompt": "  Antwoord in het Nederlands. Vandaag is {today}.  "}).json()
-    assert r["system_prompt"] == "Antwoord in het Nederlands. Vandaag is {today}."
-    assert r["system_prompt_is_default"] is False
-    assert client.get("/api/config").json()["system_prompt"] == r["system_prompt"]
+    r = client.put(
+        "/api/settings",
+        json={"system_prompt": "  Antwoord kort. Vandaag is {today}.  ", "llm_temperature": 0.2, "llm_max_tokens": 2000},
+        headers=AUTH,
+    ).json()
+    assert r["values"]["system_prompt"] == "Antwoord kort. Vandaag is {today}."
+    assert r["changed"] == ["llm_max_tokens", "llm_temperature", "system_prompt"]
+    config = client.get("/api/config").json()
+    assert config["system_prompt"] == "Antwoord kort. Vandaag is {today}."
+    assert config["llm_options"]["temperature"] == 0.2 and config["llm_options"]["num_predict"] == 2000
 
-    back = client.put("/api/settings", json={"system_prompt": ""}).json()
-    assert back["system_prompt_is_default"] is True
-    assert client.get("/api/config").json()["system_prompt"] == default["default_system_prompt"]
+    # Validation: ranges, types, unknown keys and the rules between settings.
+    for bad in ({"llm_top_p": 1.5}, {"llm_top_k": 2.5}, {"onbekend": 1}, {"system_prompt": " "},
+                {"child_chunk_size": 2000}, {"context_top_n": 60, "retrieval_top_k": 50}):
+        assert client.put("/api/settings", json=bad, headers=AUTH).status_code == 422, bad
+    assert client.get("/api/settings").json()["values"]["llm_temperature"] == 0.2
+
+    # Chunk sizes reach the indexer; a long question is refused at the new limit.
+    client.put("/api/settings", json={"parent_chunk_size": 800, "child_chunk_size": 200, "query_max_length": 100}, headers=AUTH)
+    assert client.get("/api/index/settings").json()["chunk_config"]["parent_chunk_size"] == 800
+    assert client.post("/api/expand", json={"query": "x" * 101, "index_id": 1}).status_code == 422
+
+    # Files over the size limit are not indexed.
+    big = docs_root / "bv" / "groot.txt"
+    big.write_text("a" * 1_200_000)
+    client.put("/api/settings", json={"max_file_mb": 1}, headers=AUTH)
+    r = client.post("/api/index/prepare", json={"file_path": "bv/groot.txt"}, headers=AUTH)
+    big.unlink()
+    assert r.status_code == 413 and "1 MB" in r.json()["detail"]
+
+    # Back to the defaults: a value equal to the default is not stored either.
+    back = client.put("/api/settings", json={**reset, "llm_top_k": initial["defaults"]["llm_top_k"]}, headers=AUTH).json()
+    assert back["changed"] == [] and back["values"] == initial["defaults"]
 
 
 def test_absolute_paths_on_the_nas(client, monkeypatch):

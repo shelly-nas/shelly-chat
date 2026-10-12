@@ -9,6 +9,8 @@ export interface Settings {
   /** Unload each model right after use, so embedder and LLM never compete for memory. */
   unloadModels: boolean;
   expandQuery: boolean;
+  /** Ask the model not to think first (Ollama's think: false), like /no_think did. */
+  disableThinking: boolean;
   /** INDEX_TOKEN of the NAS, needed to change the index. */
   indexToken: string;
   /** Embedding model for indexing; empty: the index's current one. */
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   llmModel: "",
   unloadModels: true,
   expandQuery: true,
+  disableThinking: true,
   indexToken: "",
   embedModel: "",
   lastIndexId: null,

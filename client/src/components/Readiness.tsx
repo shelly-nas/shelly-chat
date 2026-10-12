@@ -4,6 +4,8 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { Box, Button, Card, CardContent, Stack, Typography } from "@mui/material";
 
+import { useNavigate } from "react-router-dom";
+
 import { useAppState } from "../appState";
 import { hasModel } from "../lib/ollama";
 import type { DocIndex } from "../lib/types";
@@ -63,7 +65,7 @@ export function useChecks(selected: DocIndex | null): Check[] | null {
 
 export default function Readiness({ index }: { index: DocIndex | null }) {
   const checks = useChecks(index);
-  const { setSettingsOpen } = useAppState();
+  const navigate = useNavigate();
   if (!checks || checks.every((c) => c.ok)) return null;
 
   return (
@@ -91,7 +93,7 @@ export default function Readiness({ index }: { index: DocIndex | null }) {
           ))}
         </Stack>
         <Box>
-          <Button variant="outlined" onClick={() => setSettingsOpen(true)}>
+          <Button variant="outlined" onClick={() => navigate("/instellingen")}>
             Instellingen openen
           </Button>
         </Box>

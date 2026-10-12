@@ -152,6 +152,8 @@ export const themeSettings = (mode: PaletteMode = "light"): ThemeOptions => {
         styleOverrides: { root: { borderRadius: 8, "&.Mui-focusVisible": { boxShadow: focusRing } } },
       },
       MuiOutlinedInput: {
+        // The label sits above the field, so the border never needs a gap for it.
+        defaultProps: { notched: false },
         styleOverrides: {
           root: {
             borderRadius: 8,

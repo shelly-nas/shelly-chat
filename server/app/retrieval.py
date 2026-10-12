@@ -14,7 +14,7 @@ the NAS. The cosine scores from step 1 decide the order.
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from app import config, db
+from app import db
 
 
 @dataclass
@@ -161,12 +161,3 @@ def retrieve(embedding: list[float], index_id: int, top_k: int, top_n: int, thre
     ranked = auto_merge(hits, parents, child_counts, threshold)[:top_n]
     return [to_context(h, i + 1) for i, h in enumerate(ranked)]
 
-
-def default_retrieve(embedding: list[float], index_id: int) -> list[dict]:
-    return retrieve(
-        embedding,
-        index_id,
-        top_k=config.RETRIEVAL_TOP_K,
-        top_n=config.CONTEXT_TOP_N,
-        threshold=config.AUTOMERGE_THRESHOLD,
-    )

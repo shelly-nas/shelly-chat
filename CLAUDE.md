@@ -61,8 +61,12 @@ ongewijzigd komt direct in de index en stopt hier) → Ollama `/api/embed` voor 
 → `POST /api/indexes/{id}/prune` (alleen als elke bron gelezen kon worden).
 `host/indexing/indexer.py` is dezelfde run als CLI. Wijzig je de regels (reset, verwijderen), doe dat dan in beide.
 
-De systeemprompt staat in `app_settings` (`GET/PUT /api/settings`, zonder rij geldt `LLM_SYSTEM_PROMPT`) en komt via
-`GET /api/config` bij de browser en `host/rag.py`. Er is geen geschiedenis: elke vraag gebruikt de laatste.
+Gedeelde instellingen (systeemprompt, generatie, zoeken, chunkgroottes, maximale bestandsgrootte) staan in
+`app_settings` (`server/app/settings.py`, `GET/PUT /api/settings`, wijzigen met het token). Zonder rij geldt de
+standaard uit `config.py`/de omgeving. Ze komen via `GET /api/config` bij de browser en `host/rag.py`, en via
+`GET /api/index/settings` bij de indexers. Er is geen geschiedenis: elke vraag gebruikt de laatste waarde. Een nieuwe
+gedeelde instelling komt in `SETTINGS` in `settings.py` én in `FIELDS` in `client/src/pages/SettingsPage.tsx`.
+Instellingen van één browser (Ollama, model, denken uit) staan in `client/src/lib/settings.ts`.
 
 De server leest documenten uit `DOCUMENTS_DIR`, alleen-lezen gemount op `/data/documents`. Op acc en prod is dat `/`,
 de hele NAS: in de UI zijn bronnen absolute paden. Opgeslagen bronnen en `file_path`s zijn altijd relatief aan die

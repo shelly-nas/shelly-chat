@@ -21,6 +21,8 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 SHELLY_CHAT_URL = os.getenv("SHELLY_CHAT_URL", "http://localhost:3000").rstrip("/")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+# Like "Denken uitzetten" in the app (on by default there): LLM_THINK=true lets the model think first.
+LLM_THINK = os.getenv("LLM_THINK", "false").lower() == "true"
 
 
 def build_context_string(contexts: list[dict]) -> str:
@@ -84,7 +86,7 @@ def ask(question: str, index: str, history: list[dict] | None = None, llm_model:
     with requests.post(
         f"{OLLAMA_BASE_URL}/api/chat",
         json={"model": model, "messages": messages, "stream": True,
-              "options": config["llm_options"], "keep_alive": 0},
+              "options": config["llm_options"], "think": LLM_THINK, "keep_alive": 0},
         stream=True,
         timeout=600,
     ) as stream:

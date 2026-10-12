@@ -1,5 +1,5 @@
-// Building blocks shared by the index screens.
-import { Box, Card, CardContent, Stack, Typography } from "@mui/material";
+// Building blocks shared by the index and settings screens.
+import { Box, Card, CardContent, Stack, TextField, Typography } from "@mui/material";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { useAppState } from "../../appState";
@@ -34,6 +34,32 @@ export function Fact({ label, value }: { label: string; value: ReactNode }) {
         {value}
       </Typography>
     </Box>
+  );
+}
+
+/** The INDEX_TOKEN field: needed to change anything that applies to everyone. */
+export function TokenField() {
+  const { settings, updateSettings } = useAppState();
+  const state = useTokenState(settings.indexToken);
+  return (
+    <TextField
+      label="Index-token van de NAS"
+      type="password"
+      autoComplete="off"
+      value={settings.indexToken}
+      onChange={(e) => updateSettings({ indexToken: e.target.value.trim() })}
+      error={state === "wrong"}
+      helperText={
+        state === "ok"
+          ? "Klopt."
+          : state === "wrong"
+            ? "Dit token klopt niet. Het staat als INDEX_TOKEN in de GitHub-secrets."
+            : state === "checking"
+              ? "Controleren…"
+              : "INDEX_TOKEN uit de GitHub-secrets."
+      }
+      sx={{ maxWidth: 420 }}
+    />
   );
 }
 

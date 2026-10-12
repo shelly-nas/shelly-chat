@@ -13,10 +13,8 @@ import hashlib
 from pathlib import Path
 
 from llama_index.core import Document
-from llama_index.core.node_parser import HierarchicalNodeParser, get_leaf_nodes
+from llama_index.core.node_parser import HierarchicalNodeParser, SentenceSplitter, get_leaf_nodes
 from llama_index.core.schema import MetadataMode
-
-from app import config
 
 
 def extract_text(path: Path) -> str:
@@ -39,15 +37,7 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def chunk_config() -> dict:
-    return {
-        "parent_chunk_size": config.PARENT_CHUNK_SIZE,
-        "child_chunk_size": config.CHILD_CHUNK_SIZE,
-        "parent_chunk_overlap": config.PARENT_CHUNK_OVERLAP,
-    }
-
-
-def split(text: str, metadata: dict, hash_: str) -> list[dict]:
+def split(text: str, metadata: dict, hash_: str, chunks: dict) -> list[dict]:
     """Hierarchical chunks; leaves carry the text the embedding is made of."""
     doc = Document(text=text, metadata={**metadata, "content_hash": hash_})
     # The hash identifies the document version; it must not end up in what
@@ -57,8 +47,19 @@ def split(text: str, metadata: dict, hash_: str) -> list[dict]:
         doc.excluded_embed_metadata_keys.append(key)
         doc.excluded_llm_metadata_keys.append(key)
 
+    # chunks: parent_chunk_size, child_chunk_size, parent_chunk_overlap (the
+    # shared settings). The overlap applies between parents; leaves inside a
+    # parent keep LlamaIndex's small default overlap.
     parser = HierarchicalNodeParser.from_defaults(
-        chunk_sizes=[config.PARENT_CHUNK_SIZE, config.CHILD_CHUNK_SIZE]
+        node_parser_ids=["parent", "child"],
+        node_parser_map={
+            "parent": SentenceSplitter(
+                chunk_size=chunks["parent_chunk_size"], chunk_overlap=chunks["parent_chunk_overlap"]
+            ),
+            "child": SentenceSplitter(
+                chunk_size=chunks["child_chunk_size"], chunk_overlap=min(20, chunks["child_chunk_size"] // 4)
+            ),
+        },
     )
     all_nodes = parser.get_nodes_from_documents([doc])
     leaf_ids = {n.node_id for n in get_leaf_nodes(all_nodes)}

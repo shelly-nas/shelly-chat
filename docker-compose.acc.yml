@@ -55,8 +55,10 @@ services:
       INDEX_TOKEN: ${INDEX_TOKEN:?INDEX_TOKEN is verplicht}
       # Defaults the browser uses when it talks to Ollama.
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemma4:latest}
-      LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-You are a helpful assistant.}
-      NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-I could not find this in the provided sources.}
+      # Defaults only: both are changed in the app (Settings). Empty means the
+      # Dutch defaults in server/app/config.py.
+      LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-}
+      NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-}
       # The folder the server may read, as the NAS sees it. Standard / (the
       # whole NAS), so an index source can be any path, like /home/Jelle/Documenten.
       DOCUMENTS_DIR: ${DOCUMENTS_DIR:-/}

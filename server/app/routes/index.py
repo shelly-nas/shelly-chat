@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from app import abbreviations, config, db, documents, files
+from app import abbreviations, config, db, documents, files, settings
 
 router = APIRouter(prefix="/api/index")
 
@@ -63,9 +63,10 @@ def index_settings():
     """What an indexing run needs to know up front: model, chunking, the folder."""
     with db.connection() as conn:
         meta = conn.execute(f"SELECT {_META_COLUMNS} FROM index_meta").fetchone()
+        values = settings.current(conn)
     return {
         "meta": meta,
-        "chunk_config": documents.chunk_config(),
+        "chunk_config": settings.chunk_config(values),
         "documents_dir": config.DOCUMENTS_DIR,
         "documents_root_exists": files.root().is_dir(),
     }
@@ -100,8 +101,8 @@ class IndexMeta(BaseModel):
 
 @router.put("/meta", dependencies=[Depends(require_token)])
 def put_meta(request: IndexMeta):
-    fields = {**request.model_dump(exclude={"reset"}), **documents.chunk_config()}
     with db.connection() as conn:
+        fields = {**request.model_dump(exclude={"reset"}), **settings.chunk_config(settings.current(conn))}
         current = conn.execute(f"SELECT {_META_COLUMNS} FROM index_meta").fetchone()
         changed = current is not None and any(current[k] != v for k, v in fields.items())
         if changed and not request.reset:
@@ -164,6 +165,14 @@ def prepare_document(request: PrepareRequest):
     if not files.is_supported(path):
         raise HTTPException(status_code=404, detail=f"{request.file_path}: geen ondersteund document.")
     file_path = files.relative(path)
+    with db.connection() as conn:
+        values = settings.current(conn)
+    size_mb = path.stat().st_size / 1_000_000
+    if size_mb > values["max_file_mb"]:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{file_path}: {size_mb:.0f} MB, groter dan de grens van {values['max_file_mb']} MB.",
+        )
     try:
         text = documents.extract_text(path)
     except Exception as exc:
@@ -186,7 +195,7 @@ def prepare_document(request: PrepareRequest):
     source_url = "/api/files/" + quote(file_path)
     metadata = {"file_path": file_path, "file_name": file_name, "source_url": source_url}
     try:
-        nodes = documents.split(text, metadata, hash_)
+        nodes = documents.split(text, metadata, hash_, settings.chunk_config(values))
     except ValueError as exc:
         # E.g. metadata longer than a chunk when CHILD_CHUNK_SIZE is very small.
         raise HTTPException(status_code=422, detail=f"{file_path}: {exc}")

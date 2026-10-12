@@ -61,6 +61,8 @@ export interface AskOptions {
   llmModel: string;
   expandQuery: boolean;
   unloadModels: boolean;
+  /** Let the model think before it answers; false is faster and keeps the answer short. */
+  think: boolean;
   signal?: AbortSignal;
   onStage: (stage: Stage) => void;
   onExpansions: (query: string, expansions: ExpansionSource[]) => void;
@@ -118,6 +120,7 @@ export async function ask(o: AskOptions): Promise<AskResult> {
   for await (const token of chatStream(o.ollamaUrl, o.llmModel, messages, {
     options: o.config.llm_options,
     unload: o.unloadModels,
+    think: o.think,
     signal: o.signal,
   })) {
     answer += token;

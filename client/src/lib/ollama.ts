@@ -130,7 +130,7 @@ export async function* chatStream(
   ollamaUrl: string,
   model: string,
   messages: ChatTurn[],
-  opts: { options?: Record<string, number>; unload: boolean; signal?: AbortSignal },
+  opts: { options?: Record<string, number>; unload: boolean; think?: boolean; signal?: AbortSignal },
 ): AsyncGenerator<string> {
   const res = await call(`${base(ollamaUrl)}/api/chat`, {
     method: "POST",
@@ -140,6 +140,9 @@ export async function* chatStream(
       messages,
       stream: true,
       options: opts.options,
+      // false switches thinking off for every model that thinks (Qwen3,
+      // gpt-oss, Gemma); models that do not think ignore it.
+      ...(opts.think === undefined ? {} : { think: opts.think }),
       ...(opts.unload ? { keep_alive: 0 } : {}),
     }),
     signal: opts.signal,

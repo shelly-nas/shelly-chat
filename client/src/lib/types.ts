@@ -110,10 +110,32 @@ export interface IndexSettings {
   documents_root_exists: boolean;
 }
 
-export interface SharedSettings {
+/** Settings that apply to everyone, kept on the NAS (GET/PUT /api/settings). */
+export interface SharedValues {
   system_prompt: string;
-  system_prompt_is_default: boolean;
-  default_system_prompt: string;
+  no_answer_response: string;
+  llm_temperature: number;
+  llm_top_p: number;
+  llm_top_k: number;
+  llm_num_ctx: number;
+  llm_max_tokens: number;
+  retrieval_top_k: number;
+  context_top_n: number;
+  automerge_threshold: number;
+  history_max_turns: number;
+  query_max_length: number;
+  parent_chunk_size: number;
+  child_chunk_size: number;
+  parent_chunk_overlap: number;
+  max_file_mb: number;
+}
+
+export interface SharedSettings {
+  values: SharedValues;
+  /** From the environment on the NAS; what "Standaard" goes back to. */
+  defaults: SharedValues;
+  /** Keys that differ from their default. */
+  changed: (keyof SharedValues)[];
 }
 
 export interface BrowseResult {

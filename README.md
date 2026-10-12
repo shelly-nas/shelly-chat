@@ -76,11 +76,23 @@ worden), gaan uit de index, maar alleen als elke bron gelezen kon worden. Een ma
 leegt de index dus nooit. Het index-token staat alleen in je browser, nooit op de NAS. Voor scripts of
 een geplande taak doet de CLI in [host/](host/README.md) precies hetzelfde.
 
-### Systeemprompt
+### Instellingen
 
-De systeemprompt pas je aan onder **Instellingen → Systeemprompt**. Hij staat op de NAS, geldt voor
-iedereen en voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste versie. `{today}` wordt
-de datum. **Standaard herstellen** zet hem terug op `LLM_SYSTEM_PROMPT` (of de ingebouwde tekst).
+Het scherm **Instellingen** heeft drie delen:
+
+| Deel | Waar bewaard | Wat |
+|---|---|---|
+| **Deze browser** | localStorage | Ollama-adres, taalmodel, denken uitzetten, modellen ontladen, afkortingen uitschrijven, index-token |
+| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, kandidaten, bronnen per vraag, merge-drempel, gespreksgeheugen, maximale vraaglengte |
+| **Indexeren** | NAS, voor iedereen | grote en kleine chunks, overlap, maximale bestandsgrootte |
+
+Wat op de NAS staat, geldt voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste waarde.
+Wijzigen vraagt het `INDEX_TOKEN`. Alleen wat afwijkt van de standaard wordt bewaard; elk veld kan terug naar
+de standaard. Een andere chunkgrootte bouwt bij de volgende indexering alle indexen opnieuw op. `{today}` in
+de systeemprompt wordt de datum.
+
+"Denken uitzetten" stuurt `think: false` naar Ollama. Dat werkt voor elk model dat nadenkt (Qwen3, gpt-oss,
+Gemma), in plaats van `/no_think` in de prompt, dat alleen Qwen3 kent.
 
 ### De documentenmap
 
@@ -185,12 +197,15 @@ host/        CLI-indexer en evaluatie, draaien naast Ollama                     
 | `INDEX_TOKEN` | GitHub secret | token om de index en de bronnen te wijzigen, verplicht op acc en prod (`openssl rand -hex 32`) |
 | `DOCUMENTS_DIR` | GitHub variable (optioneel) | map op de NAS die de server mag lezen, standaard `/` (de hele NAS) |
 | `LLM_MODEL_NAME` | GitHub variable (optioneel) | standaard chatmodel, standaard `gemma4:latest` |
-| `LLM_SYSTEM_PROMPT` | GitHub variable (optioneel) | standaard-systeemprompt; aan te passen in de app onder **Instellingen**. `{today}` wordt de datum |
-| `NO_ANSWER_RESPONSE` | GitHub variable (optioneel) | antwoord als er geen bronnen zijn |
+| `LLM_SYSTEM_PROMPT` | GitHub variable (optioneel) | standaard-systeemprompt; leeg is de Nederlandse prompt uit `server/app/config.py` |
+| `NO_ANSWER_RESPONSE` | GitHub variable (optioneel) | standaardantwoord als er geen bronnen zijn |
 
-Verder: `PARENT_CHUNK_SIZE` (1500), `CHILD_CHUNK_SIZE` (een kwart daarvan), `PARENT_CHUNK_OVERLAP` (300),
-`RETRIEVAL_TOP_K` (20), `CONTEXT_TOP_N` (5), `AUTOMERGE_THRESHOLD` (0.5), `LLM_TEMPERATURE`,
-`LLM_TOP_P`, `LLM_TOP_K` en `LLM_NUM_CTX` hebben standaardwaarden in `server/app/config.py`.
+Dit zijn alleen standaardwaarden: in de app pas je ze aan onder **Instellingen**. Dat geldt ook voor
+`PARENT_CHUNK_SIZE` (1500), `CHILD_CHUNK_SIZE` (een kwart daarvan), `PARENT_CHUNK_OVERLAP` (300),
+`MAX_FILE_MB` (50), `RETRIEVAL_TOP_K` (50), `CONTEXT_TOP_N` (10), `AUTOMERGE_THRESHOLD` (0.5),
+`QUERY_MAX_LENGTH` (4000), `CHAT_HISTORY_MAX_TURNS` (10), `LLM_TEMPERATURE` (1.0), `LLM_TOP_P` (0.95),
+`LLM_TOP_K` (64), `LLM_NUM_CTX` (32000) en `LLM_MAX_TOKENS` (32000), met hun standaard in
+`server/app/config.py`.
 Het embeddingmodel kies je niet op de NAS, maar bij het indexeren. Vragen gebruiken daarna automatisch hetzelfde model.
 
 ## Deploy

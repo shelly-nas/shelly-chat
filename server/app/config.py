@@ -8,11 +8,11 @@ import os
 
 
 def _int(name: str, default: int) -> int:
-    return int(os.getenv(name, str(default)))
+    return int(os.getenv(name) or default)
 
 
 def _float(name: str, default: float) -> float:
-    return float(os.getenv(name, str(default)))
+    return float(os.getenv(name) or default)
 
 
 SERVER_PORT = _int("SERVER_PORT", 3000)
@@ -35,27 +35,43 @@ INDEX_TOKEN = os.getenv("INDEX_TOKEN", "")
 DOCUMENTS_ROOT = os.getenv("DOCUMENTS_ROOT", "/data/documents")
 DOCUMENTS_DIR = os.getenv("DOCUMENTS_DIR", "")
 
+# Everything below is a default. People change these in the app (Settings);
+# what they set is stored in app_settings and wins (see app/settings.py).
+
 # Chunking. A change resets the index on the next indexing run: chunks of
 # two sizes do not mix. CHILD_CHUNK_SIZE defaults to a quarter of the parent,
 # the ratio LlamaIndex's auto-merging is designed for.
 PARENT_CHUNK_SIZE = _int("PARENT_CHUNK_SIZE", 1500)
 CHILD_CHUNK_SIZE = _int("CHILD_CHUNK_SIZE", PARENT_CHUNK_SIZE // 4)
 PARENT_CHUNK_OVERLAP = _int("PARENT_CHUNK_OVERLAP", 300)
+# Larger files are not indexed: the server sees the whole NAS.
+MAX_FILE_MB = _int("MAX_FILE_MB", 50)
 
-# Retrieval
-RETRIEVAL_TOP_K = _int("RETRIEVAL_TOP_K", 20)
-CONTEXT_TOP_N = _int("CONTEXT_TOP_N", 5)
+# Retrieval. Without a reranker, more candidates give auto-merging more to
+# work with; ten sources fit easily in a 32k context.
+RETRIEVAL_TOP_K = _int("RETRIEVAL_TOP_K", 50)
+CONTEXT_TOP_N = _int("CONTEXT_TOP_N", 10)
 AUTOMERGE_THRESHOLD = _float("AUTOMERGE_THRESHOLD", 0.5)
-QUERY_MAX_LENGTH = _int("QUERY_MAX_LENGTH", 2000)
+QUERY_MAX_LENGTH = _int("QUERY_MAX_LENGTH", 4000)
 
-# Generation defaults for the browser
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gemma4:latest")
-LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT", "You are a helpful assistant.")
-NO_ANSWER_RESPONSE = os.getenv(
-    "NO_ANSWER_RESPONSE", "I could not find this in the provided sources."
+DEFAULT_SYSTEM_PROMPT = """Beantwoord vragen UITSLUITEND op basis van de verstrekte BRONNEN [1], [2], etc.
+Als de bronnen het antwoord niet bevatten, zeg dan expliciet dat je het niet kunt beantwoorden op basis van de beschikbare documentatie.
+Antwoord altijd in het Nederlands.
+Verwijs bij elke bewering naar de bron met [nummer] (bijv. [1], [2,3]).
+Vandaag is het {today}."""
+DEFAULT_NO_ANSWER_RESPONSE = (
+    "Er is geen relevante informatie gevonden in onze kennisbank die kan helpen om jouw vraag te beantwoorden."
 )
+
+# Generation defaults for the browser. Empty variables count as unset, so the
+# compose files can pass them through without a default of their own.
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME") or "gemma4:latest"
+LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT") or DEFAULT_SYSTEM_PROMPT
+NO_ANSWER_RESPONSE = os.getenv("NO_ANSWER_RESPONSE") or DEFAULT_NO_ANSWER_RESPONSE
 CHAT_HISTORY_MAX_TURNS = _int("CHAT_HISTORY_MAX_TURNS", 10)
 LLM_TEMPERATURE = _float("LLM_TEMPERATURE", 1.0)
 LLM_TOP_P = _float("LLM_TOP_P", 0.95)
 LLM_TOP_K = _int("LLM_TOP_K", 64)
+# Context window (prompt + answer) and the longest answer, in tokens.
 LLM_NUM_CTX = _int("LLM_NUM_CTX", 32000)
+LLM_MAX_TOKENS = _int("LLM_MAX_TOKENS", 32000)

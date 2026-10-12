@@ -29,8 +29,10 @@ services:
       # Empty locally is allowed: the index endpoints are then open.
       INDEX_TOKEN: ${INDEX_TOKEN:-}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemma4:latest}
-      LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-You are a helpful assistant.}
-      NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-I could not find this in the provided sources.}
+      # Defaults only: both are changed in the app (Settings). Empty means the
+      # Dutch defaults in server/app/config.py.
+      LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-}
+      NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-}
       DOCUMENTS_DIR: ${DOCUMENTS_DIR:-./documents}
     volumes:
       # The documents to index, read-only. Put files in ./documents (not in

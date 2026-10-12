@@ -29,8 +29,6 @@ interface AppState {
   refreshConversations: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   checkOllama: () => Promise<void>;
-  settingsOpen: boolean;
-  setSettingsOpen: (open: boolean) => void;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -49,7 +47,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [ollama, setOllama] = useState<OllamaState>({ status: "checking" });
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
   const [conversationsError, setConversationsError] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [indexes, setIndexes] = useState<DocIndex[] | null>(null);
 
   const refreshIndexes = useCallback(async () => {
@@ -118,8 +115,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         refreshIndexes,
         refreshStatus,
         checkOllama,
-        settingsOpen,
-        setSettingsOpen,
       }}
     >
       {children}

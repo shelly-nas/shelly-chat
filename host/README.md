@@ -56,13 +56,14 @@ de CLI dus alles als ongewijzigd, en andersom.
 | `SHELLY_CHAT_URL` | `http://localhost:3000` | De shelly-chat-server: prod `http://chat.shelly-nas.nl`, acc `http://chat-acc.shelly-nas.nl` |
 | `INDEX_TOKEN` | leeg | Gelijk aan `INDEX_TOKEN` op de NAS |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama op deze computer |
+| `LLM_THINK` | `false` | `rag.py` en de evaluatie: laat het model eerst nadenken (in de app: "Denken uitzetten" uit) |
 | `EMBED_MODEL` | `qwen3-embedding:latest` | Embeddingmodel; vragen in de app gebruiken daarna hetzelfde model |
 | `EMBED_BATCH_SIZE` | `16` | Chunks per embed-aanroep |
 
-Chunkgroottes stel je in op de NAS (`PARENT_CHUNK_SIZE`, `CHILD_CHUNK_SIZE`, `PARENT_CHUNK_OVERLAP`).
-Grotere parents geven het model meer context per bron, maar ook meer ruis. Kleinere leaves zoeken
-preciezer. `AUTOMERGE_THRESHOLD` bepaalt vanaf welk deel van de gevonden leaves de hele parent wordt
-meegegeven.
+Chunkgroottes, de maximale bestandsgrootte en de zoek- en antwoordinstellingen stel je in de app in, onder
+**Instellingen** (ze staan op de NAS en gelden ook voor de CLI). Grotere parents geven het model meer
+context per bron, maar ook meer ruis. Kleinere leaves zoeken preciezer. De merge-drempel bepaalt vanaf welk
+deel van de gevonden leaves de hele parent wordt meegegeven.
 
 Ondersteunde bestanden: `.md`, `.adoc`, `.txt`, `.pdf`, `.docx` en `.doc` (best-effort). Bronnen zijn
 absolute paden op de NAS, zoals `/home/Jelle/Documenten` (zie de README in de root).
