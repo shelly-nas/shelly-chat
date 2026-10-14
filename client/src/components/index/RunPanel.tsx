@@ -44,9 +44,10 @@ export default function RunPanel({ run }: { run: IndexRun }) {
             </Typography>
           </Stack>
           <LinearProgress
-            // Moving while the NAS lists or finishes, so it never looks stuck at the end.
-            variant={progress?.phase === "indexing" && progress.total ? "determinate" : "indeterminate"}
-            value={percent}
+            // Moving only while the run is busy without a count (the NAS lists or finishes);
+            // once the run has ended it stands still: full when done, where it was when stopped.
+            variant={running && !(progress?.phase === "indexing" && progress.total) ? "indeterminate" : "determinate"}
+            value={!running && result?.counts ? 100 : percent}
             sx={{ height: 6, borderRadius: 3 }}
             aria-label="Voortgang van het indexeren"
           />
