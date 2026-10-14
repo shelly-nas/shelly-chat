@@ -37,7 +37,8 @@ SETTINGS: dict[str, Setting] = {
     "answer_without_sources": Setting(bool, config.ANSWER_WITHOUT_SOURCES),
     "history_max_turns": Setting(int, config.CHAT_HISTORY_MAX_TURNS, 0, 100),
     "query_max_length": Setting(int, config.QUERY_MAX_LENGTH, 100, 100_000),
-    # Indexing: a change to the chunk sizes rebuilds every index.
+    # Indexing: a change to the model or the chunk sizes rebuilds every index.
+    "embed_model": Setting(str, config.EMBED_MODEL, max_length=200),
     "parent_chunk_size": Setting(int, config.PARENT_CHUNK_SIZE, 100, 20_000),
     "child_chunk_size": Setting(int, config.CHILD_CHUNK_SIZE, 50, 20_000),
     "parent_chunk_overlap": Setting(int, config.PARENT_CHUNK_OVERLAP, 0, 10_000),

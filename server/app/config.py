@@ -44,6 +44,9 @@ DOCUMENTS_DIR = os.getenv("DOCUMENTS_DIR", "")
 PARENT_CHUNK_SIZE = _int("PARENT_CHUNK_SIZE", 1500)
 CHILD_CHUNK_SIZE = _int("CHILD_CHUNK_SIZE", PARENT_CHUNK_SIZE // 4)
 PARENT_CHUNK_OVERLAP = _int("PARENT_CHUNK_OVERLAP", 300)
+# The Ollama model that embeds the chunks and the questions. A change, like
+# one of the chunk sizes, rebuilds every index on the next run.
+EMBED_MODEL = os.getenv("EMBED_MODEL") or "qwen3-embedding:latest"
 # Larger files are not indexed: the server sees the whole NAS.
 MAX_FILE_MB = _int("MAX_FILE_MB", 50)
 

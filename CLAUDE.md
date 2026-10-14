@@ -61,7 +61,7 @@ ongewijzigd komt direct in de index en stopt hier) → Ollama `/api/embed` voor 
 → `POST /api/indexes/{id}/prune` (alleen als elke bron gelezen kon worden).
 `host/indexing/indexer.py` is dezelfde run als CLI. Wijzig je de regels (reset, verwijderen), doe dat dan in beide.
 
-Gedeelde instellingen (systeemprompt, generatie, zoeken, chunkgroottes, maximale bestandsgrootte) staan in
+Gedeelde instellingen (systeemprompt, generatie, zoeken, embeddingmodel, chunkgroottes, maximale bestandsgrootte) staan in
 `app_settings` (`server/app/settings.py`, `GET/PUT /api/settings`, wijzigen met het token). Zonder rij geldt de
 standaard uit `config.py`/de omgeving. Ze komen via `GET /api/config` bij de browser en `host/rag.py`, en via
 `GET /api/index/settings` bij de indexers. Er is geen geschiedenis: elke vraag gebruikt de laatste waarde. Een nieuwe

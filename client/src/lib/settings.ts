@@ -13,8 +13,6 @@ export interface Settings {
   disableThinking: boolean;
   /** INDEX_TOKEN of the NAS, needed to change the index. */
   indexToken: string;
-  /** Embedding model for indexing; empty: the index's current one. */
-  embedModel: string;
   /** Index a new conversation starts with: the one chosen last time. */
   lastIndexId: number | null;
 }
@@ -26,7 +24,6 @@ export const DEFAULT_SETTINGS: Settings = {
   expandQuery: true,
   disableThinking: true,
   indexToken: "",
-  embedModel: "",
   lastIndexId: null,
 };
 

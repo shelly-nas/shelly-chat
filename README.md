@@ -84,7 +84,7 @@ Het scherm **Instellingen** heeft drie delen:
 |---|---|---|
 | **Deze browser** | localStorage | Ollama-adres, taalmodel, denken uitzetten, modellen ontladen, afkortingen uitschrijven, index-token |
 | **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, ook antwoorden zonder relevante bron, gespreksgeheugen, maximale vraaglengte |
-| **Indexeren** | NAS, voor iedereen | grote en kleine chunks, overlap, maximale bestandsgrootte |
+| **Indexeren** | NAS, voor iedereen | embeddingmodel (uit de modellen in Ollama), grote en kleine chunks, overlap, maximale bestandsgrootte |
 
 Wat op de NAS staat, geldt voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste waarde.
 Wijzigen vraagt het `INDEX_TOKEN`. Alleen wat afwijkt van de standaard wordt bewaard; elk veld kan terug naar
@@ -213,7 +213,8 @@ Dit zijn alleen standaardwaarden: in de app pas je ze aan onder **Instellingen**
 `QUERY_MAX_LENGTH` (4000), `CHAT_HISTORY_MAX_TURNS` (10), `LLM_TEMPERATURE` (1.0), `LLM_TOP_P` (0.95),
 `LLM_TOP_K` (64), `LLM_NUM_CTX` (32000) en `LLM_MAX_TOKENS` (32000), met hun standaard in
 `server/app/config.py`.
-Het embeddingmodel kies je niet op de NAS, maar bij het indexeren. Vragen gebruiken daarna automatisch hetzelfde model.
+Het embeddingmodel kies je onder **Instellingen → Indexeren** (standaard `EMBED_MODEL`, `qwen3-embedding:latest`);
+de app en de CLI indexeren daarmee, en vragen gebruiken automatisch het model waarmee de index gebouwd is.
 
 ## Deploy
 

@@ -46,6 +46,8 @@ interface Field {
   help: string;
   /** Text (multiline) or a number with these bounds; the NAS checks them again. */
   text?: boolean;
+  /** Pick one of the models installed in Ollama (or keep the current one). */
+  ollamaModel?: boolean;
   /** On/off, shown as a switch. */
   toggle?: boolean;
   integer?: boolean;
@@ -119,6 +121,11 @@ const FIELDS: Record<Key, Field> = {
     unit: "beurten",
   },
   query_max_length: { label: "Maximale vraaglengte", help: "Langere vragen worden geweigerd.", integer: true, min: 100, max: 100000, unit: "tekens" },
+  embed_model: {
+    label: "Embeddingmodel",
+    help: "Het Ollama-model dat de documenten en de vragen omzet naar vectoren. Vragen gebruiken automatisch hetzelfde model.",
+    ollamaModel: true,
+  },
   parent_chunk_size: {
     label: "Grote chunks",
     help: "Secties die het taalmodel als bron krijgt.",
@@ -147,6 +154,8 @@ const FIELDS: Record<Key, Field> = {
 };
 
 const CHUNK_KEYS: Key[] = ["parent_chunk_size", "child_chunk_size", "parent_chunk_overlap"];
+/** A change to these rebuilds every index on the next run. */
+const REBUILD_KEYS: Key[] = ["embed_model", ...CHUNK_KEYS];
 
 const ANSWER_GROUPS: { title: string; keys: Key[] }[] = [
   { title: "Instructies", keys: ["system_prompt", "no_answer_response"] },
@@ -155,6 +164,7 @@ const ANSWER_GROUPS: { title: string; keys: Key[] }[] = [
   { title: "Gesprek", keys: ["history_max_turns", "query_max_length"] },
 ];
 const INDEX_GROUPS: { title: string; keys: Key[] }[] = [
+  { title: "Embedding", keys: ["embed_model"] },
   { title: "Chunks", keys: CHUNK_KEYS },
   { title: "Bestanden", keys: ["max_file_mb"] },
 ];
@@ -165,7 +175,7 @@ type Draft = Partial<Record<Key, string>>;
 function parse(key: Key, raw: string): { value: Value } | { error: string } {
   const f = FIELDS[key];
   if (f.toggle) return { value: raw === "true" };
-  if (f.text) return raw.trim() ? { value: raw.trim() } : { error: "Mag niet leeg zijn." };
+  if (f.text || f.ollamaModel) return raw.trim() ? { value: raw.trim() } : { error: "Mag niet leeg zijn." };
   const n = Number(raw.replace(",", "."));
   if (raw.trim() === "" || Number.isNaN(n)) return { error: "Vul een getal in." };
   if (f.integer && !Number.isInteger(n)) return { error: "Vul een geheel getal in." };
@@ -343,6 +353,8 @@ function SharedSection(props: {
   /** Asked before saving these changes; return false to save straight away. */
   confirm?: (keys: Key[]) => boolean;
   warning?: ReactNode;
+  /** Installed in Ollama, for model fields. */
+  ollamaModels: string[];
 }) {
   const { data, groups } = props;
   const keys = useMemo(() => groups.flatMap((g) => g.keys), [groups]);
@@ -408,6 +420,31 @@ function SharedSection(props: {
             onChange={(v) => setDraft((d) => ({ ...d, [k]: String(v) }))}
           />
         </Box>
+      );
+    }
+    if (f.ollamaModel) {
+      const current = draft[k] ?? "";
+      const names = [...new Set([current, String(data.defaults[k]), ...props.ollamaModels])].filter(Boolean);
+      return (
+        <FormControl key={k} fullWidth disabled={!props.canEdit || saving}>
+          <InputLabel id={`setting-${k}`}>{f.label}</InputLabel>
+          <Select
+            labelId={`setting-${k}`}
+            value={current}
+            sx={{ height: 40, "& .MuiSelect-select": { display: "flex", alignItems: "center", height: "100%", py: 0 } }}
+            onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+          >
+            {names.map((name) => (
+              <MenuItem key={name} value={name}>
+                {name}
+                {!props.ollamaModels.includes(name) && " (niet geïnstalleerd)"}
+              </MenuItem>
+            ))}
+          </Select>
+          <FormHelperText>
+            {f.help} Standaard: {show(data.defaults[k])}. Staat het model er niet tussen, installeer het dan met ollama pull.
+          </FormHelperText>
+        </FormControl>
       );
     }
     if (f.text) {
@@ -502,11 +539,11 @@ function SharedSection(props: {
       )}
 
       <Dialog open={confirming} onClose={() => setConfirming(false)} maxWidth="xs" fullWidth>
-        <DialogTitle variant="h3">Chunkgrootte wijzigen?</DialogTitle>
+        <DialogTitle variant="h3">Alle indexen opnieuw opbouwen?</DialogTitle>
         <DialogContent>
           <Typography variant="body1">
-            Chunks van twee groottes gaan niet samen. Bij de volgende indexering worden daarom alle indexen leeggemaakt en
-            opnieuw opgebouwd. Tot dat klaar is, vindt de chat niets meer.
+            Vectoren van twee embeddingmodellen, of chunks van twee groottes, gaan niet samen. Bij de volgende indexering
+            worden daarom alle indexen leeggemaakt en opnieuw opgebouwd. Tot dat klaar is, vindt de chat niets meer.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 6, pb: 6 }}>
@@ -553,6 +590,8 @@ export default function SettingsPage() {
   const meta = index?.meta;
   const chunksDiffer =
     meta && data && CHUNK_KEYS.some((k) => meta[k as keyof typeof meta] !== data.values[k]);
+  const modelDiffers = meta && data && meta.embed_model !== data.values.embed_model;
+  const ollamaModels = ollama.status === "ok" ? ollama.models.map((m) => m.name) : [];
 
   return (
     <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -582,6 +621,7 @@ export default function SettingsPage() {
               data={data}
               canEdit={canEdit}
               onSave={save}
+              ollamaModels={ollamaModels}
             />
             <SharedSection
               title="Indexeren"
@@ -590,12 +630,18 @@ export default function SettingsPage() {
               data={data}
               canEdit={canEdit}
               onSave={save}
-              confirm={(keys) => keys.some((k) => CHUNK_KEYS.includes(k)) && !!meta}
+              confirm={(keys) => keys.some((k) => REBUILD_KEYS.includes(k)) && !!meta}
+              ollamaModels={ollamaModels}
               warning={
-                chunksDiffer && (
+                (chunksDiffer || modelDiffers) && (
                   <Alert severity="warning">
-                    De indexen zijn gebouwd met andere chunkgroottes ({meta!.parent_chunk_size} / {meta!.child_chunk_size} /{" "}
-                    {meta!.parent_chunk_overlap}). Bij de volgende indexering worden ze opnieuw opgebouwd.
+                    De indexen zijn gebouwd met{" "}
+                    {modelDiffers ? `${meta!.embed_model}` : ""}
+                    {modelDiffers && chunksDiffer ? " en " : ""}
+                    {chunksDiffer
+                      ? `andere chunkgroottes (${meta!.parent_chunk_size} / ${meta!.child_chunk_size} / ${meta!.parent_chunk_overlap})`
+                      : ""}
+                    . Bij de volgende indexering worden ze opnieuw opgebouwd.
                   </Alert>
                 )
               }

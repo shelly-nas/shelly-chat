@@ -67,6 +67,8 @@ def index_settings():
     return {
         "meta": meta,
         "chunk_config": settings.chunk_config(values),
+        # The model the next run embeds with; meta has the one the store was built with.
+        "embed_model": values["embed_model"],
         "documents_dir": config.DOCUMENTS_DIR,
         "documents_root_exists": files.root().is_dir(),
     }

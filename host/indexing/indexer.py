@@ -4,7 +4,7 @@ The same run as the Index screens in the app (client/src/lib/indexer.ts), for
 when a terminal or a scheduled job is handier than a browser tab. It runs on a
 machine with Ollama; the documents themselves stay on the NAS:
 
-1. The embedding model (EMBED_MODEL) and the chunk configuration are shared by
+1. The embedding model and the chunk configuration (Settings in the app) are shared by
    all indexes. A different model, dimension or chunk configuration than the
    store was built with empties it: every index is then indexed again.
 2. Per index, the NAS lists the documents in its sources minus its ignore
@@ -39,6 +39,7 @@ load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 class IndexingConfig:
     server_url: str = "http://localhost:3000"
     index_token: str = ""
+    # Set from the NAS at the start of a run (Settings → Indexeren in the app).
     embed_model: str = "qwen3-embedding:latest"
     ollama_base_url: str = "http://localhost:11434"
     embed_batch_size: int = 16
@@ -48,7 +49,6 @@ class IndexingConfig:
         return cls(
             server_url=os.getenv("SHELLY_CHAT_URL", "http://localhost:3000"),
             index_token=os.getenv("INDEX_TOKEN", ""),
-            embed_model=os.getenv("EMBED_MODEL", "qwen3-embedding:latest"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             embed_batch_size=int(os.getenv("EMBED_BATCH_SIZE", "16")),
         )
@@ -126,6 +126,8 @@ def index_one(index: dict, nas: NasClient, embedder: OllamaEmbedder, counts: Dic
 def run_pipeline(config: IndexingConfig, full_reindex: bool = False, only: Optional[str] = None) -> Dict[str, int]:
     counts = {"new": 0, "changed": 0, "unchanged": 0, "deleted": 0, "failed": 0}
     nas = config.nas()
+    settings = nas.settings()
+    config.embed_model = settings["embed_model"]
     embedder = config.embedder()
 
     indexes: List[dict] = nas.indexes()
@@ -137,7 +139,6 @@ def run_pipeline(config: IndexingConfig, full_reindex: bool = False, only: Optio
         raise SystemExit("Er zijn nog geen indexen. Maak ze op het scherm Indexen in de app.")
 
     # 1. Model, dimension and whether to start over (shared by all indexes)
-    settings = nas.settings()
     meta = settings["meta"]
     if meta and meta["embed_model"] == config.embed_model:
         dimensions = meta["embed_dimensions"]

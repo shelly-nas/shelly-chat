@@ -271,6 +271,8 @@ def test_shared_settings(client, docs_root):
     # Chunk sizes reach the indexer; a long question is refused at the new limit.
     client.put("/api/settings", json={"parent_chunk_size": 800, "child_chunk_size": 200, "query_max_length": 100}, headers=AUTH)
     assert client.get("/api/index/settings").json()["chunk_config"]["parent_chunk_size"] == 800
+    client.put("/api/settings", json={"embed_model": "nomic-embed-text"}, headers=AUTH)
+    assert client.get("/api/index/settings").json()["embed_model"] == "nomic-embed-text"
     assert client.post("/api/expand", json={"query": "x" * 101, "index_id": 1}).status_code == 422
 
     # Files over the size limit are not indexed.

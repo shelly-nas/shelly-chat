@@ -11,14 +11,10 @@ import {
   CardActionArea,
   CardContent,
   Dialog,
+  Link,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  FormHelperText,
-  InputLabel,
-  MenuItem,
-  Select,
   Skeleton,
   Snackbar,
   Stack,
@@ -26,7 +22,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../appState";
 import {
@@ -44,7 +40,7 @@ import { api } from "../lib/api";
 import { resetReason } from "../lib/indexer";
 
 export default function IndexesPage() {
-  const { settings, updateSettings, ollama, index: status, indexes, refreshIndexes, refreshStatus } = useAppState();
+  const { settings, index: status, indexes, refreshIndexes, refreshStatus } = useAppState();
   const navigate = useNavigate();
   const { data, error, reload } = useIndexSettings();
   const tokenState = useTokenState(settings.indexToken);
@@ -59,7 +55,6 @@ export default function IndexesPage() {
   // Token first while it is missing; decided once, so the card does not jump while typing.
   const [tokenFirst] = useState(() => !settings.indexToken);
 
-  const models = ollama.status === "ok" ? ollama.models : [];
   const reason = data ? resetReason(data.meta, data.chunk_config, embedModel) : null;
   const all = (indexes ?? []).map((i) => ({ id: i.id, name: i.name }));
 
@@ -168,24 +163,16 @@ export default function IndexesPage() {
             </Stack>
           )}
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 6 }}>
-            <FormControl fullWidth disabled={run.running}>
-              <InputLabel id="embed-model">Embeddingmodel</InputLabel>
-              <Select
-                labelId="embed-model"
-                value={embedModel}
-                sx={{ height: 40, "& .MuiSelect-select": { display: "flex", alignItems: "center", height: "100%", py: 0 } }}
-                onChange={(e) => updateSettings({ embedModel: e.target.value })}
-              >
-                {[...new Set([embedModel, ...models.map((m) => m.name)])].map((name) => (
-                  <MenuItem key={name} value={name}>{name}</MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>
+            <Box>
+              <Typography variant="overline" component="p">Embeddingmodel</Typography>
+              <Typography sx={{ fontSize: 16, fontWeight: 600, color: "text.primary", overflowWrap: "anywhere" }}>{embedModel}</Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
                 {reason
-                  ? `Let op: ${reason}. Alle indexen worden opnieuw opgebouwd bij de volgende indexering.`
-                  : "Vragen in de chat gebruiken automatisch hetzelfde model."}
-              </FormHelperText>
-            </FormControl>
+                  ? `Let op: ${reason}. Alle indexen worden opnieuw opgebouwd bij de volgende indexering. `
+                  : "Vragen in de chat gebruiken automatisch hetzelfde model. "}
+                <Link component={RouterLink} to="/instellingen">Wijzigen onder Instellingen</Link>
+              </Typography>
+            </Box>
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2, pt: { md: "26px" }, flexWrap: "wrap" }}>
               {run.running ? (
                 <Button variant="outlined" onClick={run.stop}>Stoppen</Button>

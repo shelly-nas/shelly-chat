@@ -36,7 +36,7 @@ python -m indexing.indexer --build-abbreviations  # alleen de afkortingen opnieu
 De run is gelijk aan die van het Indexen-scherm (`client/src/lib/indexer.ts`):
 
 1. De **indexen**, hun **bronnen** en **ignore-patronen** en de **chunkinstellingen** komen van de NAS.
-   Indexen en bronnen beheer je op het Indexen-scherm. Het embeddingmodel komt uit `EMBED_MODEL`. Wijkt het model, de dimensie of de
+   Indexen en bronnen beheer je op het Indexen-scherm, het embeddingmodel onder Instellingen → Indexeren. Wijkt het model, de dimensie of de
    chunkinstelling af van waarmee de index gebouwd is, dan worden alle indexen geleegd en opnieuw opgebouwd.
 2. Per index somt de NAS de documenten in de bronnen op, na de ignore-patronen (`GET /api/indexes/{id}/files`). Per document leest de NAS het
    bestand, haalt de tekst eruit (ook uit PDF en DOCX), hasht die en knipt hem in parents en leaves
@@ -57,7 +57,6 @@ de CLI dus alles als ongewijzigd, en andersom.
 | `INDEX_TOKEN` | leeg | Gelijk aan `INDEX_TOKEN` op de NAS |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama op deze computer |
 | `LLM_THINK` | `false` | `rag.py` en de evaluatie: laat het model eerst nadenken (in de app: "Denken uitzetten" uit) |
-| `EMBED_MODEL` | `qwen3-embedding:latest` | Embeddingmodel; vragen in de app gebruiken daarna hetzelfde model |
 | `EMBED_BATCH_SIZE` | `16` | Chunks per embed-aanroep |
 
 Chunkgroottes, de maximale bestandsgrootte en de zoek- en antwoordinstellingen stel je in de app in, onder

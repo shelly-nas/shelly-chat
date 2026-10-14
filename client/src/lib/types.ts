@@ -107,6 +107,8 @@ export interface DocIndex {
 export interface IndexSettings {
   meta: IndexStatus["meta"];
   chunk_config: ChunkConfig;
+  /** The model the next run embeds with (Instellingen → Indexeren); meta has the store's. */
+  embed_model: string;
   /** The documents folder as the NAS sees it, e.g. /volume1/docker/shelly-chat/documents. */
   documents_dir: string;
   documents_root_exists: boolean;
@@ -128,6 +130,7 @@ export interface SharedValues {
   answer_without_sources: boolean;
   history_max_turns: number;
   query_max_length: number;
+  embed_model: string;
   parent_chunk_size: number;
   child_chunk_size: number;
   parent_chunk_overlap: number;

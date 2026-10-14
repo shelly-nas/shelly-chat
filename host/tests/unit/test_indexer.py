@@ -22,7 +22,7 @@ class FakeNas:
         return list(self.indexes_)[index_id - 1]
 
     def settings(self):
-        return {"meta": self.meta, "chunk_config": CHUNKS}
+        return {"meta": self.meta, "chunk_config": CHUNKS, "embed_model": "qwen3-embedding:latest"}
 
     def put_meta(self, meta, reset):
         self.calls.append(("meta", meta["embed_model"], reset))

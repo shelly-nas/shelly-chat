@@ -106,10 +106,9 @@ export function useIndexSettings() {
   return { data, error, reload: load };
 }
 
-/** The embedding model indexing uses: chosen in this browser, else the store's, else the default. */
+/** The embedding model indexing uses: the shared setting (Instellingen → Indexeren). */
 export function useEmbedModel(data: IndexSettings | null): string {
-  const { settings } = useAppState();
-  return settings.embedModel || data?.meta?.embed_model || DEFAULT_EMBED_MODEL;
+  return data?.embed_model ?? data?.meta?.embed_model ?? DEFAULT_EMBED_MODEL;
 }
 
 /** What still stands in the way of indexing, in words. */
