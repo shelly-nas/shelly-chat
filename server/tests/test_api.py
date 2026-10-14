@@ -160,8 +160,9 @@ def test_shared_documents_and_search_per_index(client):
     client.put("/api/settings", json={"min_similarity": 0.5}, headers=AUTH)
     assert set(search(a["id"], (0, 0, 1))) == {"team/renovate.docx"}
     assert search(a["id"], (0, 1, 0)) == []
-    client.put("/api/settings", json={"min_similarity": None}, headers=AUTH)
+    client.put("/api/settings", json={"min_similarity": 0}, headers=AUTH)
     assert len(search(a["id"], (0, 1, 0))) > 0
+    client.put("/api/settings", json={"min_similarity": None}, headers=AUTH)
 
     # Abbreviations come only from the conversation's index.
     q = "Wat staat er in de brp?"
@@ -186,7 +187,8 @@ def test_shared_documents_and_search_per_index(client):
 
     # Deleting index B leaves brp.md for A.
     client.delete(f"/api/indexes/{b['id']}", headers=AUTH)
-    assert set(search(a["id"], (0, 0, 1))) == {"bv/brp.md"}
+    assert set(search(a["id"])) == {"bv/brp.md"}
+    assert search(a["id"], (0, 0, 1)) == []  # renovate.docx is gone; brp.md does not match
 
     assert client.get("/api/config").json()["embed_model"] == "test-embed"
     for i in (a, empty):

@@ -203,7 +203,7 @@ host/        CLI-indexer en evaluatie, draaien naast Ollama                     
 Dit zijn alleen standaardwaarden: in de app pas je ze aan onder **Instellingen**. Dat geldt ook voor
 `PARENT_CHUNK_SIZE` (1500), `CHILD_CHUNK_SIZE` (een kwart daarvan), `PARENT_CHUNK_OVERLAP` (300),
 `MAX_FILE_MB` (50), `RETRIEVAL_TOP_K` (50), `CONTEXT_TOP_N` (10), `AUTOMERGE_THRESHOLD` (0.5),
-`MIN_SIMILARITY` (0, uit),
+`MIN_SIMILARITY` (0.5),
 `QUERY_MAX_LENGTH` (4000), `CHAT_HISTORY_MAX_TURNS` (10), `LLM_TEMPERATURE` (1.0), `LLM_TOP_P` (0.95),
 `LLM_TOP_K` (64), `LLM_NUM_CTX` (32000) en `LLM_MAX_TOKENS` (32000), met hun standaard in
 `server/app/config.py`.
