@@ -36,6 +36,11 @@ describe("buildMessages", () => {
     expect(messages[3].content).toContain("[1] wiki/1.md (page 1)\nalpha");
   });
 
+  it("tells the model when no source was found", () => {
+    const prompt = buildQaPrompt([], "Wat is X?");
+    expect(prompt).toBe("BRONNEN:\n(geen relevante bronnen gevonden)\n\nVRAAG: Wat is X?\n\nANTWOORD:");
+  });
+
   it("keeps only the last turns", () => {
     const history: ChatMessage[] = Array.from({ length: 10 }, (_, i) => ({
       id: String(i),

@@ -46,6 +46,8 @@ interface Field {
   help: string;
   /** Text (multiline) or a number with these bounds; the NAS checks them again. */
   text?: boolean;
+  /** On/off, shown as a switch. */
+  toggle?: boolean;
   integer?: boolean;
   min?: number;
   max?: number;
@@ -61,7 +63,7 @@ const FIELDS: Record<Key, Field> = {
   },
   no_answer_response: {
     label: "Antwoord zonder bronnen",
-    help: "Wat de chat zegt als er niets relevants gevonden is. Het taalmodel wordt dan niet gevraagd.",
+    help: "Wat de chat zegt als er niets relevants gevonden is. Alleen gebruikt als “Ook antwoorden zonder relevante bron” uit staat.",
     text: true,
   },
   llm_temperature: { label: "Temperatuur", help: "Lager is feitelijker, hoger creatiever.", min: 0, max: 2, step: 0.05 },
@@ -100,6 +102,13 @@ const FIELDS: Record<Key, Field> = {
     min: 0,
     max: 1,
     step: 0.01,
+  },
+  answer_without_sources: {
+    label: "Ook antwoorden zonder relevante bron",
+    help:
+      "Haalt geen enkele bron de minimale relevantie, dan antwoordt het taalmodel toch, gemarkeerd als buiten de bronnen. " +
+      "Uit: direct het antwoord zonder bronnen, zonder het taalmodel.",
+    toggle: true,
   },
   history_max_turns: {
     label: "Gespreksgeheugen",
@@ -142,7 +151,7 @@ const CHUNK_KEYS: Key[] = ["parent_chunk_size", "child_chunk_size", "parent_chun
 const ANSWER_GROUPS: { title: string; keys: Key[] }[] = [
   { title: "Instructies", keys: ["system_prompt", "no_answer_response"] },
   { title: "Taalmodel", keys: ["llm_temperature", "llm_top_p", "llm_top_k", "llm_num_ctx", "llm_max_tokens"] },
-  { title: "Zoeken", keys: ["retrieval_top_k", "context_top_n", "automerge_threshold", "min_similarity"] },
+  { title: "Zoeken", keys: ["retrieval_top_k", "context_top_n", "automerge_threshold", "min_similarity", "answer_without_sources"] },
   { title: "Gesprek", keys: ["history_max_turns", "query_max_length"] },
 ];
 const INDEX_GROUPS: { title: string; keys: Key[] }[] = [
@@ -153,8 +162,9 @@ const INDEX_GROUPS: { title: string; keys: Key[] }[] = [
 type Draft = Partial<Record<Key, string>>;
 
 /** The value a draft field stands for, or an error for people. */
-function parse(key: Key, raw: string): { value: string | number } | { error: string } {
+function parse(key: Key, raw: string): { value: Value } | { error: string } {
   const f = FIELDS[key];
+  if (f.toggle) return { value: raw === "true" };
   if (f.text) return raw.trim() ? { value: raw.trim() } : { error: "Mag niet leeg zijn." };
   const n = Number(raw.replace(",", "."));
   if (raw.trim() === "" || Number.isNaN(n)) return { error: "Vul een getal in." };
@@ -174,7 +184,9 @@ function crossCheck(v: SharedValues): string | null {
   return null;
 }
 
-const show = (v: string | number) => (typeof v === "number" ? v.toLocaleString("nl-NL") : v);
+type Value = string | number | boolean;
+
+const show = (v: Value) => (typeof v === "number" ? v.toLocaleString("nl-NL") : typeof v === "boolean" ? (v ? "aan" : "uit") : v);
 
 function SubHeading({ children }: { children: ReactNode }) {
   return (
@@ -184,12 +196,12 @@ function SubHeading({ children }: { children: ReactNode }) {
   );
 }
 
-function SwitchRow(props: { title: string; description: string; checked: boolean; onChange: (v: boolean) => void }) {
+function SwitchRow(props: { title: string; description: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
     <FormControlLabel
       sx={{ m: 0, alignItems: "flex-start", justifyContent: "space-between", gap: 4, minHeight: 44 }}
       labelPlacement="start"
-      control={<Switch checked={props.checked} onChange={(e) => props.onChange(e.target.checked)} />}
+      control={<Switch checked={props.checked} disabled={props.disabled} onChange={(e) => props.onChange(e.target.checked)} />}
       label={
         <Box>
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>{props.title}</Typography>
@@ -327,7 +339,7 @@ function SharedSection(props: {
   groups: { title: string; keys: Key[] }[];
   data: SharedSettings;
   canEdit: boolean;
-  onSave: (changes: Partial<Record<Key, string | number>>) => Promise<void>;
+  onSave: (changes: Partial<Record<Key, Value>>) => Promise<void>;
   /** Asked before saving these changes; return false to save straight away. */
   confirm?: (keys: Key[]) => boolean;
   warning?: ReactNode;
@@ -347,7 +359,7 @@ function SharedSection(props: {
       const p = parsed[k];
       return "value" in p && p.value !== data.values[k] ? [[k, p.value]] : [];
     }),
-  ) as Partial<Record<Key, string | number>>;
+  ) as Partial<Record<Key, Value>>;
   const changedKeys = Object.keys(changes) as Key[];
   const fieldsValid = keys.every((k) => "value" in parsed[k]);
   const rule = fieldsValid ? crossCheck({ ...data.values, ...changes } as SharedValues) : null;
@@ -385,6 +397,19 @@ function SharedSection(props: {
         {!f.text && <> Standaard: {show(data.defaults[k])}{f.unit ? ` ${f.unit}` : ""}.</>}
       </>
     );
+    if (f.toggle) {
+      return (
+        <Box key={k} sx={{ gridColumn: "1 / -1" }}>
+          <SwitchRow
+            title={f.label}
+            description={`${f.help} Standaard: ${show(data.defaults[k])}.`}
+            checked={draft[k] === "true"}
+            disabled={!props.canEdit || saving}
+            onChange={(v) => setDraft((d) => ({ ...d, [k]: String(v) }))}
+          />
+        </Box>
+      );
+    }
     if (f.text) {
       return (
         <Box key={k} sx={{ gridColumn: "1 / -1" }}>
@@ -513,7 +538,7 @@ export default function SettingsPage() {
     if (ollama.status !== "ok") checkOllama();
   }, []);
 
-  const save = async (changes: Partial<Record<Key, string | number>>) => {
+  const save = async (changes: Partial<Record<Key, Value>>) => {
     try {
       setData(await api.putSettings(settings.indexToken, changes));
       const indexing = Object.keys(changes).some((k) => INDEX_GROUPS.some((g) => g.keys.includes(k as Key)));

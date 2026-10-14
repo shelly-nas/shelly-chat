@@ -258,7 +258,12 @@ def test_shared_settings(client, docs_root):
     assert config["llm_options"]["temperature"] == 0.2 and config["llm_options"]["num_predict"] == 2000
 
     # Validation: ranges, types, unknown keys and the rules between settings.
-    for bad in ({"llm_top_p": 1.5}, {"llm_top_k": 2.5}, {"onbekend": 1}, {"system_prompt": " "},
+    assert initial["values"]["answer_without_sources"] is True
+    assert client.get("/api/config").json()["answer_without_sources"] is True
+    off = client.put("/api/settings", json={"answer_without_sources": False}, headers=AUTH).json()
+    assert "answer_without_sources" in off["changed"] and client.get("/api/config").json()["answer_without_sources"] is False
+    client.put("/api/settings", json={"answer_without_sources": None}, headers=AUTH)
+    for bad in ({"answer_without_sources": 1}, {"llm_top_p": 1.5}, {"llm_top_k": 2.5}, {"onbekend": 1}, {"system_prompt": " "},
                 {"child_chunk_size": 2000}, {"context_top_n": 60, "retrieval_top_k": 50}):
         assert client.put("/api/settings", json=bad, headers=AUTH).status_code == 422, bad
     assert client.get("/api/settings").json()["values"]["llm_temperature"] == 0.2

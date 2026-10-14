@@ -34,6 +34,7 @@ SETTINGS: dict[str, Setting] = {
     "context_top_n": Setting(int, config.CONTEXT_TOP_N, 1, 100),
     "automerge_threshold": Setting(float, config.AUTOMERGE_THRESHOLD, 0, 1),
     "min_similarity": Setting(float, config.MIN_SIMILARITY, 0, 1),
+    "answer_without_sources": Setting(bool, config.ANSWER_WITHOUT_SOURCES),
     "history_max_turns": Setting(int, config.CHAT_HISTORY_MAX_TURNS, 0, 100),
     "query_max_length": Setting(int, config.QUERY_MAX_LENGTH, 100, 100_000),
     # Indexing: a change to the chunk sizes rebuilds every index.
@@ -61,6 +62,10 @@ def validate(key: str, value: object) -> object:
             raise InvalidSetting(f"{key} mag niet leeg zijn.")
         if len(value) > setting.max_length:
             raise InvalidSetting(f"{key} is langer dan {setting.max_length} tekens.")
+        return value
+    if setting.type is bool:
+        if not isinstance(value, bool):
+            raise InvalidSetting(f"{key} moet aan of uit zijn.")
         return value
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise InvalidSetting(f"{key} moet een getal zijn.")

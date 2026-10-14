@@ -26,7 +26,8 @@ export function buildContextString(contexts: SourceContext[]): string {
 }
 
 export function buildQaPrompt(contexts: SourceContext[], query: string): string {
-  return `SOURCES:\n${buildContextString(contexts)}\n\nQUESTION: ${query}\n\nANSWER:`;
+  const sources = contexts.length ? buildContextString(contexts) : "(geen relevante bronnen gevonden)";
+  return `BRONNEN:\n${sources}\n\nVRAAG: ${query}\n\nANTWOORD:`;
 }
 
 /** System prompt, the recent history and the question with its sources. */
@@ -101,8 +102,9 @@ export async function ask(o: AskOptions): Promise<AskResult> {
   const { contexts } = await api.retrieve(embedding, o.config.embed_model, o.indexId, o.signal);
   o.onSources(contexts);
 
-  // No sources: refuse rather than let the model make something up.
-  if (contexts.length === 0) {
+  // No sources: unless the model may answer from general knowledge (marked
+  // as such by the system prompt), give the fixed no-answer text.
+  if (contexts.length === 0 && !o.config.answer_without_sources) {
     o.onToken(o.config.no_answer_response);
     return {
       effectiveQuery: query,

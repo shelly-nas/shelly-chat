@@ -31,6 +31,7 @@ def get_config():
         # Edited in the app's settings; every conversation uses the current ones.
         "system_prompt": s["system_prompt"],
         "no_answer_response": s["no_answer_response"],
+        "answer_without_sources": s["answer_without_sources"],
         "history_max_turns": s["history_max_turns"],
         "query_max_length": s["query_max_length"],
         "llm_options": {

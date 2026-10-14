@@ -149,6 +149,6 @@ export const api = {
   // Shared settings
   settings: () => request<SharedSettings>("/api/settings"),
   /** Only the keys to change; null goes back to the default. */
-  putSettings: (token: string, changes: Partial<Record<keyof SharedValues, string | number | null>>) =>
+  putSettings: (token: string, changes: Partial<Record<keyof SharedValues, string | number | boolean | null>>) =>
     request<SharedSettings>("/api/settings", { method: "PUT", body: JSON.stringify(changes), headers: bearer(token) }),
 };

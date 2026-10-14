@@ -49,6 +49,8 @@ export interface ServerConfig {
   llm_model: string;
   system_prompt: string;
   no_answer_response: string;
+  /** Ask the model even without a relevant source; else no_answer_response. */
+  answer_without_sources: boolean;
   history_max_turns: number;
   query_max_length: number;
   llm_options: Record<string, number>;
@@ -123,6 +125,7 @@ export interface SharedValues {
   context_top_n: number;
   automerge_threshold: number;
   min_similarity: number;
+  answer_without_sources: boolean;
   history_max_turns: number;
   query_max_length: number;
   parent_chunk_size: number;

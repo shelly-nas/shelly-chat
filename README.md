@@ -83,13 +83,19 @@ Het scherm **Instellingen** heeft drie delen:
 | Deel | Waar bewaard | Wat |
 |---|---|---|
 | **Deze browser** | localStorage | Ollama-adres, taalmodel, denken uitzetten, modellen ontladen, afkortingen uitschrijven, index-token |
-| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, gespreksgeheugen, maximale vraaglengte |
+| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, ook antwoorden zonder relevante bron, gespreksgeheugen, maximale vraaglengte |
 | **Indexeren** | NAS, voor iedereen | grote en kleine chunks, overlap, maximale bestandsgrootte |
 
 Wat op de NAS staat, geldt voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste waarde.
 Wijzigen vraagt het `INDEX_TOKEN`. Alleen wat afwijkt van de standaard wordt bewaard; elk veld kan terug naar
 de standaard. Een andere chunkgrootte bouwt bij de volgende indexering alle indexen opnieuw op. `{today}` in
 de systeemprompt wordt de datum.
+
+De standaard-systeemprompt laat het model antwoorden in twee delen: **Uit de documenten**, met een
+bronverwijzing [nummer] bij elke bewering, en alleen als de bronnen tekortschieten **Buiten de bronnen**, duidelijk
+gemarkeerd en zonder bronnummers. Haalt geen enkele bron de minimale relevantie, dan krijgt het model een lege
+bronnenlijst en antwoordt het alleen buiten de bronnen. Zet "Ook antwoorden zonder relevante bron" uit om dan
+direct het vaste antwoord zonder bronnen te geven.
 
 "Denken uitzetten" stuurt `think: false` naar Ollama. Dat werkt voor elk model dat nadenkt (Qwen3, gpt-oss,
 Gemma), in plaats van `/no_think` in de prompt, dat alleen Qwen3 kent.

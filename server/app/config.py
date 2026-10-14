@@ -57,12 +57,17 @@ AUTOMERGE_THRESHOLD = _float("AUTOMERGE_THRESHOLD", 0.5)
 # on the embedding model; with qwen3-embedding, matches under 0.5 are noise.
 MIN_SIMILARITY = _float("MIN_SIMILARITY", 0.5)
 QUERY_MAX_LENGTH = _int("QUERY_MAX_LENGTH", 4000)
+# Without a relevant source the model still answers, marked as outside the
+# sources (see the system prompt). false: answer NO_ANSWER_RESPONSE right away.
+ANSWER_WITHOUT_SOURCES = os.getenv("ANSWER_WITHOUT_SOURCES", "true").lower() != "false"
 
-DEFAULT_SYSTEM_PROMPT = """Beantwoord vragen UITSLUITEND op basis van de verstrekte BRONNEN [1], [2], etc.
-Als de bronnen het antwoord niet bevatten, zeg dan expliciet dat je het niet kunt beantwoorden op basis van de beschikbare documentatie.
-Antwoord altijd in het Nederlands.
-Verwijs bij elke bewering naar de bron met [nummer] (bijv. [1], [2,3]).
-Vandaag is het {today}."""
+DEFAULT_SYSTEM_PROMPT = """Beantwoord de vraag in het Nederlands. Vandaag is het {today}.
+
+Gebruik deze opbouw:
+1. **Uit de documenten** – alles wat in de BRONNEN staat, met bij elke bewering een verwijzing [nummer] (bijv. [1], [2,3]). Laat dit deel weg als de bronnen niets bruikbaars bevatten.
+2. **Buiten de bronnen** – alleen als de bronnen de vraag niet (volledig) beantwoorden. Begin met: "Dit staat niet in de documentatie; op basis van algemene kennis:" en geef dan je beste antwoord, zonder bronnummers.
+
+Meng de twee delen niet. Verzin geen bronnen, en zeg het als je ook buiten de bronnen het antwoord niet weet."""
 DEFAULT_NO_ANSWER_RESPONSE = (
     "Er is geen relevante informatie gevonden in onze kennisbank die kan helpen om jouw vraag te beantwoorden."
 )

@@ -33,7 +33,8 @@ def build_context_string(contexts: list[dict]) -> str:
 
 
 def build_qa_prompt(contexts: list[dict], query: str) -> str:
-    return f"SOURCES:\n{build_context_string(contexts)}\n\nQUESTION: {query}\n\nANSWER:"
+    sources = build_context_string(contexts) if contexts else "(geen relevante bronnen gevonden)"
+    return f"BRONNEN:\n{sources}\n\nVRAAG: {query}\n\nANTWOORD:"
 
 
 def index_id(name: str) -> int:
@@ -72,7 +73,7 @@ def ask(question: str, index: str, history: list[dict] | None = None, llm_model:
     )
     resp.raise_for_status()
     contexts = resp.json()["contexts"]
-    if not contexts:
+    if not contexts and not config["answer_without_sources"]:
         return {"answer": config["no_answer_response"], "contexts": [], "query": query,
                 "expansions": expanded["expansions"], "duration_s": 0.0, "model": model}
 
