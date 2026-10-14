@@ -30,11 +30,20 @@ export interface RunCounts {
 }
 
 export interface RunProgress {
+  /** listing: the NAS lists the index's documents; indexing: one by one; finishing: pruning. */
+  phase: "listing" | "indexing" | "finishing";
+  /** The index being worked on, and which of how many in this run. */
+  index: string;
+  indexNumber: number;
+  indexCount: number;
   done: number;
   total: number;
   current: string | null;
   counts: RunCounts;
 }
+
+/** "1,2 s" */
+const seconds = (ms: number) => `${(ms / 1000).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} s`;
 
 export interface RunOptions {
   ollamaUrl: string;
@@ -81,30 +90,46 @@ async function prepareStore(o: RunOptions): Promise<boolean> {
   return reset;
 }
 
-/** Steps 2-4 for one index. */
-async function indexOne(o: RunOptions, indexId: number, name: string, counts: RunCounts): Promise<void> {
-  const { files, missing } = await api.indexFiles(o.indexToken, indexId);
-  for (const source of missing) o.log("error", `${name}: bron '${source || "."}' bestaat niet (meer) in de documentenmap; overgeslagen.`);
-  o.log("info", `${name}: ${files.length} documenten.`);
+/** Steps 2-4 for one index; `position` is [which, of how many] in this run. */
+async function indexOne(
+  o: RunOptions,
+  indexId: number,
+  name: string,
+  counts: RunCounts,
+  position: [number, number],
+): Promise<void> {
+  let total = 0;
+  const report = (phase: RunProgress["phase"], current: string | null, done: number) =>
+    o.progress({ phase, index: name, indexNumber: position[0], indexCount: position[1], done, total, current, counts: { ...counts } });
 
-  const report = (current: string | null, done: number) =>
-    o.progress({ done, total: files.length, current, counts: { ...counts } });
-  report(null, 0);
+  report("listing", null, 0);
+  let started = performance.now();
+  const { files, missing } = await api.indexFiles(o.indexToken, indexId);
+  total = files.length;
+  for (const source of missing) o.log("error", `${name}: bron '${source || "."}' bestaat niet (meer) in de documentenmap; overgeslagen.`);
+  o.log("info", `${name}: ${files.length} documenten gevonden in ${seconds(performance.now() - started)}.`);
 
   for (const [i, filePath] of files.entries()) {
     if (o.signal.aborted) throw new DOMException("Gestopt", "AbortError");
-    report(filePath, i);
+    report("indexing", filePath, i);
     try {
+      started = performance.now();
       const prepared = await api.prepareDocument(o.indexToken, filePath, indexId, o.signal);
+      const read = performance.now() - started;
       if (prepared.status === "unchanged" || prepared.status === "empty") {
         counts.unchanged++;
+        // Unchanged still means the NAS read and hashed it; say so when that took long.
+        if (read > 5000) o.log("info", `${filePath}: ongewijzigd, maar lezen duurde ${seconds(read)}.`);
         continue;
       }
       const doc = prepared.document!;
       const leaves = doc.nodes.filter((n) => n.is_leaf);
+      started = performance.now();
       const vectors = await embedMany(o.ollamaUrl, o.embedModel, leaves.map((n) => n.embed_text!), {
         signal: o.signal,
       });
+      const embedded = performance.now() - started;
+      started = performance.now();
       const byId = new Map(leaves.map((n, j) => [n.id, vectors[j]]));
       const stored = await api.putDocument(
         o.indexToken,
@@ -117,23 +142,27 @@ async function indexOne(o: RunOptions, indexId: number, name: string, counts: Ru
       );
       counts[prepared.status]++;
       const extra = stored.abbreviations ? `, ${stored.abbreviations} afkortingen` : "";
-      o.log("success", `${filePath}: ${prepared.status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra}`);
+      // Where the time goes: reading and splitting on the NAS, embedding with Ollama, storing on the NAS.
+      const timing = `lezen ${seconds(read)} · embedden ${seconds(embedded)} · opslaan ${seconds(performance.now() - started)}`;
+      o.log("success", `${filePath}: ${prepared.status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra} (${timing})`);
     } catch (err) {
       if (o.signal.aborted) throw err;
       counts.failed++;
       o.log("error", `${filePath}: ${(err as Error).message}`);
     }
   }
-  report(null, files.length);
+  report("finishing", null, files.length);
 
   if (missing.length) {
     o.log("warning", `${name}: niets uit de index gehaald, want niet elke bron kon worden gelezen.`);
     return;
   }
+  started = performance.now();
   const pruned = await api.pruneIndex(o.indexToken, indexId, files);
   counts.deleted += pruned.removed;
   if (pruned.removed) o.log("info", `${name}: ${pruned.removed} documenten uit de index gehaald die er niet meer in horen.`);
-  report(null, files.length);
+  o.log("info", `${name}: klaar, opgeruimd in ${seconds(performance.now() - started)}.`);
+  report("finishing", null, files.length);
 }
 
 /** How often a run renews its lock on the NAS; the NAS lets it go after 3 minutes without. */
@@ -155,9 +184,9 @@ export async function runIndexes(o: RunOptions, indexes: { id: number; name: str
   }, LEASE_RENEW_MS);
   try {
     await prepareStore(o);
-    for (const index of indexes) {
+    for (const [i, index] of indexes.entries()) {
       if (o.signal.aborted) throw new DOMException("Gestopt", "AbortError");
-      await indexOne(o, index.id, index.name, counts);
+      await indexOne(o, index.id, index.name, counts, [i + 1, indexes.length]);
     }
   } finally {
     clearInterval(renew);

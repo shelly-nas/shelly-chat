@@ -7,7 +7,7 @@ import { Alert, Box, Chip, LinearProgress, Stack, Typography } from "@mui/materi
 import type { ReactNode } from "react";
 
 import type { IndexRun } from "../../indexRun";
-import type { LogLevel } from "../../lib/indexer";
+import type { LogLevel, RunProgress } from "../../lib/indexer";
 
 const LOG_ICON: Record<LogLevel, ReactNode> = {
   info: <InfoOutlinedIcon fontSize="small" color="action" aria-hidden />,
@@ -17,6 +17,15 @@ const LOG_ICON: Record<LogLevel, ReactNode> = {
 };
 
 export { useIndexRun } from "../../indexRun";
+
+/** What the run is doing now, in words: "Mijn BV (2 van 3): bezig met …". */
+export function runStatus(progress: RunProgress | null, label: string | null): string {
+  if (!progress) return `${label ? `${label}: ` : ""}voorbereiden…`;
+  const index = progress.indexCount > 1 ? `${progress.index} (${progress.indexNumber} van ${progress.indexCount})` : progress.index;
+  if (progress.phase === "listing") return `${index}: documenten opsommen op de NAS…`;
+  if (progress.phase === "finishing") return `${index}: afronden…`;
+  return `${index}: bezig met ${progress.current}…`;
+}
 
 export default function RunPanel({ run }: { run: IndexRun }) {
   const { running, progress, result, log, label } = run;
@@ -28,16 +37,15 @@ export default function RunPanel({ run }: { run: IndexRun }) {
         <Box>
           <Stack direction="row" justifyContent="space-between" sx={{ mb: 2 }}>
             <Typography variant="body2" sx={{ color: "text.primary" }} noWrap>
-              {running
-                ? `${label ? `${label}: ` : ""}${progress?.current ? `bezig met ${progress.current}…` : "documenten zoeken op de NAS…"}`
-                : "Klaar"}
+              {running ? runStatus(progress, label) : "Klaar"}
             </Typography>
             <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", flexShrink: 0, ml: 4 }}>
               {progress ? `${progress.done} / ${progress.total}` : ""}
             </Typography>
           </Stack>
           <LinearProgress
-            variant={progress && progress.total ? "determinate" : "indeterminate"}
+            // Moving while the NAS lists or finishes, so it never looks stuck at the end.
+            variant={progress?.phase === "indexing" && progress.total ? "determinate" : "indeterminate"}
             value={percent}
             sx={{ height: 6, borderRadius: 3 }}
             aria-label="Voortgang van het indexeren"

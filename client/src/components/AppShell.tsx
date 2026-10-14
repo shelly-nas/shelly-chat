@@ -236,10 +236,16 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
           <Box role="status" sx={{ px: 3, pb: 2 }}>
             <Typography variant="caption" component="p" noWrap sx={{ color: "text.secondary", mb: 1 }}>
               Indexeren{run.label ? ` ${run.label}` : ""}
-              {run.progress?.total ? ` · ${run.progress.done}/${run.progress.total}` : "…"}
+              {run.progress?.phase === "listing"
+                ? " · opsommen…"
+                : run.progress?.phase === "finishing"
+                  ? " · afronden…"
+                  : run.progress?.total
+                    ? ` · ${run.progress.done}/${run.progress.total}`
+                    : "…"}
             </Typography>
             <LinearProgress
-              variant={run.progress?.total ? "determinate" : "indeterminate"}
+              variant={run.progress?.phase === "indexing" && run.progress.total ? "determinate" : "indeterminate"}
               value={run.progress?.total ? (run.progress.done / run.progress.total) * 100 : 0}
               sx={{ height: 4, borderRadius: 2 }}
               aria-label="Voortgang van het indexeren"
