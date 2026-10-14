@@ -1,149 +1,286 @@
-# RAG-Chat: Lokale Retrieval-Augmented Generation
+# shelly-chat
 
-Lokaal RAG-systeem voor het doorzoeken van lokale documenten met lokaal draaiende taalmodellen. Inclusief een Next.js webinterface, Python backend services en containerized deployment.
+Een chatbot die vragen beantwoordt over je eigen documenten (Markdown, PDF, Word) op de NAS, met
+bronvermelding. De app en de gegevens staan op de Shelly NAS. De taalmodellen draaien met
+[Ollama](https://ollama.com) **op de computer waarop je de app opent**. Er gaat dus niets naar een
+externe AI-dienst, en de NAS hoeft geen GPU te hebben.
 
-## Systeemarchitectuur
+- Productie: http://chat.shelly-nas.nl
+- Acceptatie: http://chat-acc.shelly-nas.nl
+- Lokaal: http://localhost:5173
 
-Het systeem bestaat uit twee onderdelen die op verschillende plekken draaien:
-
-- **Ollama** draait rechtstreeks op de host (je eigen pc of laptop) — de modellen worden dus nooit naar een externe server gestuurd.
-- **De rest van de applicatie** (frontend, backend, indexer en database) draait volledig in Docker-containers via `docker-compose`.
-
-```mermaid
-flowchart TB
-    subgraph HOST["localhost"]
-        OLL["Ollama :11434<br/>(draait lokaal, buiten Docker)"]
-        EMB[qwen3-embedding]
-        LLM[gemma4:latest]
-        OLL --- EMB
-        OLL --- LLM
-    end
-
-    subgraph DOCKER["Docker"]
-        UI[Next.js Frontend<br/>:3000]
-        GEN[Generation Service<br/>FastAPI :8000]
-        VDB[(Qdrant Vector DB<br/>:6333)]
-        DOC[(Document Store<br/>docstore.json)]
-
-        UI <-->|SSE Streaming| GEN
-        GEN <--> VDB
-        GEN <--> DOC
-    end
-
-    GEN <-->|"host.docker.internal:11434"| OLL
-    UI -->|"POST /api/index"| GEN
-```
-
-> **Let op:** de applicatie zelf is niet volledig lokaal — de frontend en backend draaien in Docker. Alleen Ollama (en daarmee de AI-modellen) draait direct op je machine.
-
-## Projectstructuur
-
-```
-├── indexing/                   # Documentverwerking en embedding
-├── generating/                 # RAG query-verwerking en generatie
-├── vector-db/                  # Qdrant vector database
-├── chat-app/                   # Next.js webinterface
-├── tests/                      # Evaluatie en tests
-├── docker-compose.yml          # Container orchestration
-└── requirements.txt            # Python dependencies
-```
-
-## Snel aan de slag
-
-### Vereisten
-
-- [Ollama](https://ollama.com) geïnstalleerd en actief
-- Docker & Docker Compose
-
-### Installatie
-
-1. **Installeer de benodigde modellen:**
-
-```bash
-ollama pull qwen3-embedding:latest
-ollama pull gemma4:latest
-```
-
-2. **Configureer bronnen in `.env`** (`GITLAB_WIKI_URLS`, `GITLAB_REPO_URLS`, `GITLAB_PAT`)
-
-3. **Start de services:**
-
-```bash
-docker compose up -d  # Start Qdrant + Generation API + Frontend
-```
-
-4. **Begin met chatten:** Ga naar `http://localhost:3000`
-
-5. **Indexeer documenten** via het tandwiel-icoontje (⚙) in de chat-interface
-
-### Servicestatus
-
-- **Frontend**: `http://localhost:3000`
-- **API**: `http://localhost:8000/docs`
-- **Qdrant**: `http://localhost:6333/dashboard`
-- **Ollama**: `http://localhost:11434`
-
-## RAG Processing Pipeline
+## Architectuur
 
 ```mermaid
-sequenceDiagram
-    participant U as Gebruiker
-    participant UI as Chat Interface
-    participant API as Generation API
-    participant V as Vector DB
-    participant O as Ollama
-
-    Note over U,O: Indexeren (via instellingen)
-    U->>+UI: Klik 'Herindexeer'
-    UI->>+API: POST /api/index
-    API-->>-UI: 202 Accepted
-    loop Voortgang pollen
-        UI->>API: GET /api/index/status
-        API-->>UI: status + progress
+flowchart LR
+    subgraph PC["Jouw computer"]
+        B["Browser<br/>(chat + Indexen-scherm)"]
+        O["Ollama :11434<br/>qwen3-embedding · gemma4"]
     end
-    API->>+O: Embed documenten (qwen3-embedding)
-    O-->>-API: Vectors
-    API->>V: Sla vectors op
-    API->>V: Sla afkortingen op
+    subgraph NAS["Shelly NAS (Docker, achter Traefik)"]
+        C["client<br/>nginx + React"]
+        S["server<br/>FastAPI :3000"]
+        D[("db<br/>Postgres 16 + pgvector")]
+        F[/"bestanden op de NAS<br/>/ (alleen-lezen)"/]
+    end
 
-    Note over U,O: Query-verwerking
-    U->>+UI: Stel vraag
-    UI->>+API: POST /api/chat
-    API->>+O: Embed query (qwen3-embedding)
-    O-->>-API: Query vector
-    API->>+V: Vector search
-    V-->>-API: Retrieved chunks
-    API->>+O: Load gemma4:latest
-    O-->>API: Stream tokens
-    API-->>UI: SSE: tokens
-    UI-->>-U: Streaming response
-    O-->>-API: Complete
+    B -- "pagina" --> C
+    B -- "/api: zoeken, gesprekken" --> S
+    B -- "embed + chat (rechtstreeks)" --> O
+    B -- "/api/index(es): lezen, knippen, opslaan (INDEX_TOKEN)" --> S
+    S --- D
+    S --- F
 ```
 
-## Moduledocumentatie
+Waar wat gebeurt bij een vraag:
 
-| Module                       | Doel                       | Documentatie                   |
-| ---------------------------- | -------------------------- | ------------------------------ |
-| [`indexing/`](indexing/)     | PDF-verwerking & embedding | [README](indexing/README.md)   |
-| [`generating/`](generating/) | RAG-verwerking & streaming | [README](generating/README.md) |
-| [`vector-db/`](vector-db/)   | Qdrant vector storage      | [README](vector-db/README.md)  |
-| [`chat-app/`](chat-app/)     | Next.js webinterface       | [README](chat-app/README.md)   |
-| [`tests/`](tests/)           | Evaluatieframework         | [README](tests/README.md)      |
+| Stap | Waar | Hoe |
+|---|---|---|
+| 1. Afkortingen uitschrijven (`VI` → `VI (Versleutelde Identiteit)`) | NAS | `POST /api/expand`, woordenboek uit de documenten |
+| 2. Vraag omzetten naar een vector | jouw computer | browser → Ollama `/api/embed`, met het model van de index |
+| 3. Zoeken en rangschikken | NAS | `POST /api/retrieve`, zie hieronder |
+| 4. Antwoord schrijven en streamen | jouw computer | browser → Ollama `/api/chat` |
+| 5. Gesprek bewaren | NAS | `POST /api/conversations` |
 
-## Belangrijkste functies
+**Zoeken en rangschikken** (`server/app/retrieval.py`), allemaal zonder model:
 
-- **Hierarchical Chunking** — Slim documenten opsplitsen met behoud van context (zie [`indexing/`](indexing/))
-- **GitLab Integratie** — Wiki-pagina's en repository-bestanden indexeren via GitLab REST API
-- **Source Citations** — Genummerde bronverwijzingen met similarity scores en directe GitLab-links
-- **Streaming Responses** — Real-time SSE token-generatie
-- **Hallucination Prevention** — Confidence gating en validatie
-- **Indexeren via UI** — Herindexeer documenten vanuit de interface met voortgangsbalk; afkortingen worden automatisch meegeëxtraheerd
-- **Moderne UI** — Next.js interface met inline bronweergave
-- **Docker Deployment** — Containerized services met Compose
+1. **Op betekenis:** de vraag wordt omgezet met het embeddingmodel van de index. Qwen3-Embedding krijgt daarbij
+   een instructie vóór de vraag (`Instruct: … Query: …`), waarvoor het getraind is. Daarna een exacte
+   cosine-zoekopdracht over alle kleine chunks van de index.
+2. **Op trefwoorden** (hybride zoeken): Postgres full-text search met Nederlandse en Engelse woordvormen vindt
+   namen, nummers en vaste termen die vectoren missen. Beide lijsten worden samengevoegd met *reciprocal rank
+   fusion*: wat in beide hoog staat, komt bovenaan.
+3. **Relevant genoeg:** een chunk telt alleen boven de minimale relevantie, en binnen een maximaal verschil met
+   de beste bron (standaard 0,15).
+4. **Hele secties:** worden genoeg kleine chunks van één sectie gevonden, dan krijgt het model de hele sectie.
+   Die telt als haar beste chunk plus een bonus per extra treffer, dus meer treffers tillen haar op.
+5. **Gevarieerd:** de bronnen per vraag worden gekozen met *maximal marginal relevance*: relevant, maar niet
+   bijna hetzelfde als een bron die al gekozen is.
 
-## Ontwikkeling
+Bij het knippen krijgt elke chunk het kopjespad van zijn plek in het document mee ("Contract X › Artikel 4"),
+uit Markdown-, AsciiDoc- en Word-koppen. Dat gaat mee in de embedding, staat bij de bron en gaat naar het model.
 
-- **Indexeren**: Via de instellingen in de chat-interface (knop 'Herindexeer' of 'Volledig')
-- **Frontend ontwikkeling**: `cd chat-app && npm run dev`
-- **API testen**: `http://localhost:8000/docs`
-- **Configuratie**: Zie de module READMEs voor environment variables
+De **NAS draait geen enkel model**: geen LLM, geen embeddings en geen reranker. Een NAS zonder GPU is
+genoeg.
+
+### Indexen
+
+Je kunt meerdere **indexen** maken, elk met een eigen naam, bijvoorbeeld "Mijn BV" of "Handboek". Een
+index heeft:
+- **bronnen**: mappen of bestanden uit de documentenmap, die je toevoegt en verwijdert;
+- **ignore-patronen**: regels zoals in een `.gitignore` (`archief/`, `*.tmp`, `!belangrijk.pdf`). Ze
+  worden alleen op de NAS bewaard; er komt geen `.gitignore`-bestand in de documentenmap.
+
+Bij een **nieuw gesprek** kies je bovenaan welke index het doorzoekt. Die keuze geldt voor alle vragen
+in dat gesprek en ligt vast zodra het gesprek begonnen is.
+
+Een index is handig, maar niet nodig. Kies je **Geen index**, is de index leeg, of lukt het zoeken niet
+(bijvoorbeeld omdat het embeddingmodel ontbreekt of de NAS niet antwoordt), dan antwoordt het taalmodel
+toch, zonder bronnen. Bij een mislukte zoekopdracht staat boven het antwoord waarom. Verwijder je een
+index, dan gaan de gesprekken ervan zonder index verder.
+
+Het embeddingmodel en de chunkgroottes gelden voor alle indexen samen. Een document dat in meerdere
+indexen zit, wordt één keer geëmbed en opgeslagen.
+
+**Indexeren** gaat via het scherm **Indexen** in de app, ook vanuit de browser:
+
+| Stap | Waar |
+|---|---|
+| Documenten in de bronnen opsommen, ignore-patronen toepassen | NAS (`GET /api/indexes/{id}/files`) |
+| Documenten lezen, tekst uit PDF/DOCX halen, hashen en in chunks knippen | NAS (`POST /api/index/prepare`) |
+| De kleine chunks embedden | browser → Ollama op jouw computer |
+| Opslaan, afkortingen eruit halen | NAS (`PUT /api/index/documents`) |
+| Documenten die niet meer in de bronnen staan uit de index halen | NAS (`POST /api/indexes/{id}/prune`) |
+
+Ongewijzigde documenten worden overgeslagen. Een ander embeddingmodel of andere chunkgroottes leegt
+alle indexen en bouwt ze opnieuw op. Documenten die uit de bronnen verdwenen zijn (of nu genegeerd
+worden), gaan uit de index, maar alleen als elke bron gelezen kon worden. Een map die (even) ontbreekt,
+leegt de index dus nooit. Het index-token staat alleen in je browser, nooit op de NAS.
+
+Een indexering loopt door als je naar de chat of de instellingen gaat; de voortgang staat dan in de zijbalk.
+Het tabblad moet wel open blijven, want het embedden gebeurt in je browser. Er draait altijd maar één
+indexering tegelijk: de NAS houdt een slot bij (`/api/index/run`), ook tegen een tweede tabblad, een andere
+computer of de CLI. Een run die stopt zonder het slot vrij te geven (een gesloten tabblad), verliest het na
+drie minuten. Voor scripts of
+een geplande taak doet de CLI in [host/](host/README.md) precies hetzelfde.
+
+### Instellingen
+
+Het scherm **Instellingen** heeft drie delen:
+
+| Deel | Waar bewaard | Wat |
+|---|---|---|
+| **Deze browser** | localStorage | Ollama-adres, taalmodel, denken uitzetten, modellen ontladen, afkortingen uitschrijven, index-token |
+| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, ook op trefwoorden zoeken, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, maximaal verschil met de beste bron, ook antwoorden zonder relevante bron, gespreksgeheugen, maximale vraaglengte |
+| **Indexeren** | NAS, voor iedereen | embeddingmodel (uit de modellen in Ollama), grote en kleine chunks, overlap, maximale bestandsgrootte |
+
+Wat op de NAS staat, geldt voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste waarde.
+Wijzigen vraagt het `INDEX_TOKEN`. Alleen wat afwijkt van de standaard wordt bewaard; elk veld kan terug naar
+de standaard. Een andere chunkgrootte bouwt bij de volgende indexering alle indexen opnieuw op. `{today}` in
+de systeemprompt wordt de datum.
+
+De standaard-systeemprompt laat het model antwoorden in twee delen: **Uit de documenten**, met een
+bronverwijzing [nummer] bij elke bewering, en alleen als de bronnen tekortschieten **Buiten de bronnen**, duidelijk
+gemarkeerd en zonder bronnummers. Haalt geen enkele bron de minimale relevantie, dan krijgt het model een lege
+bronnenlijst en antwoordt het alleen buiten de bronnen. Zet "Ook antwoorden zonder relevante bron" uit om dan
+direct het vaste antwoord zonder bronnen te geven.
+
+"Denken uitzetten" stuurt `think: false` naar Ollama. Dat werkt voor elk model dat nadenkt (Qwen3, gpt-oss,
+Gemma), in plaats van `/no_think` in de prompt, dat alleen Qwen3 kent.
+
+### De documentenmap
+
+Op acc en productie ziet de server **de hele NAS**: `/` wordt alleen-lezen in de server gemount, op
+`/data/documents`. **Een bron is dus gewoon een absoluut pad op de NAS**, zoals
+`/home/Jelle/Documents/Professioneel/JEX/Documenten` (een map, met alles erin) of
+`/volume1/team/renovate.pdf` (één bestand). Bij de bronnen van een index kun je door de NAS bladeren.
+
+Omdat de server alles kan lezen, gelden deze grenzen:
+- Alleen ondersteunde documenten tellen mee (`.md`, `.adoc`, `.txt`, `.pdf`, `.docx`, `.doc`), en verborgen
+  mappen (`.git`), Synology-mappen (`@eaDir`, `@docker`) en systeemmappen (`/proc`, `/sys`, `/dev`, `/run`,
+  `/tmp`) worden overgeslagen.
+- `/` zelf kan geen bron zijn; kies een map.
+- Bladeren door de NAS vraagt het `INDEX_TOKEN`.
+- **Openen** bij een bron in de chat (`GET /api/files/<pad>`) geeft alleen documenten die in een index
+  zitten, nooit andere bestanden van de NAS.
+
+Wil je de server toch tot één map beperken, zet dan de GitHub-variable `DOCUMENTS_DIR`, bijvoorbeeld
+`/volume1/Documenten`. Bronnen zijn dan absolute paden binnen die map. Lokaal is het `./documents` in de
+repo (staat in `.gitignore`), en zijn bronnen paden relatief aan die map.
+
+Ten opzichte van de vorige opzet (Qdrant + `docstore.json` + `abbreviations.json` + Next.js) is dit
+veranderd:
+- **Eén database:** chunks, embeddings, afkortingen en gesprekken staan in Postgres met pgvector. Een
+  document wordt in één transactie vervangen, dus het lock-bestand is niet meer nodig.
+- **Gesprekken worden bewaard** op de NAS en staan in de zijbalk.
+- **Knippen gebeurt op de NAS** (LlamaIndex' `HierarchicalNodeParser`, een tekstsplitter en geen model),
+  zodat de app en de CLI dezelfde chunks maken.
+- **Geen cross-encoder-reranking meer.** Dat zou een model op de NAS zetten. De volgorde komt nu uit
+  hybride zoeken en de regels hieronder.
+
+## Eenmalig per computer: Ollama klaarzetten
+
+```bash
+ollama pull qwen3-embedding:latest   # het embeddingmodel van de index
+ollama pull gemma4:latest            # of een ander chatmodel, te kiezen in de app
+```
+
+Ollama beantwoordt alleen browserverzoeken van origins die het vertrouwt. Zet de NAS-adressen erbij
+(`localhost` mag standaard al):
+
+```bash
+# macOS (daarna Ollama afsluiten en opnieuw openen)
+launchctl setenv OLLAMA_ORIGINS "http://chat.shelly-nas.nl,http://chat-acc.shelly-nas.nl"
+
+# Linux (systemd)
+sudo systemctl edit ollama
+#   [Service]
+#   Environment="OLLAMA_ORIGINS=http://chat.shelly-nas.nl,http://chat-acc.shelly-nas.nl"
+sudo systemctl restart ollama
+
+# Windows (daarna Ollama afsluiten en opnieuw openen)
+setx OLLAMA_ORIGINS "http://chat.shelly-nas.nl,http://chat-acc.shelly-nas.nl"
+```
+
+Chrome kan de eerste keer vragen of de pagina "apparaten in je lokale netwerk" mag gebruiken. Sta dat
+toe: zo bereikt de pagina Ollama op je eigen computer. Draait Ollama op een andere machine in het
+netwerk, vul dan het adres daarvan in onder **Instellingen**. Die machine moet dan met
+`OLLAMA_HOST=0.0.0.0` luisteren.
+
+### Sneller antwoorden
+
+Twee instellingen van Ollama maken het inlezen van lange prompts (vraag, gesprek en bronnen) sneller en
+zuiniger met geheugen. Zet ze op dezelfde manier als `OLLAMA_ORIGINS` en start Ollama daarna opnieuw:
+
+```bash
+# macOS
+launchctl setenv OLLAMA_FLASH_ATTENTION 1
+launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0
+
+# Linux (systemd): in `sudo systemctl edit ollama`
+#   Environment="OLLAMA_FLASH_ATTENTION=1"
+#   Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
+
+# Windows
+setx OLLAMA_FLASH_ATTENTION 1
+setx OLLAMA_KV_CACHE_TYPE q8_0
+```
+
+Verder helpt een kleiner of sterker gequantiseerd chatmodel (bijvoorbeeld `gemma4:e4b` of `qwen3:8b`), en
+minder bronnen per vraag of een kleiner contextvenster onder **Instellingen → Antwoorden**. Onder elk antwoord
+staat waar de tijd in ging: zoeken, model laden, de prompt inlezen (met het aantal tokens) en schrijven
+(tokens per seconde). Het taalmodel blijft na een antwoord 10 minuten geladen, zodat een vervolgvraag
+direct begint; alleen het embeddingmodel wordt meteen ontladen.
+
+## Lokaal draaien
+
+```bash
+cp .env.example .env    # vul DB_PASSWORD in
+docker compose up --build
+```
+
+Zet een paar documenten in `./documents`, open http://localhost:5173 en ga naar **Indexen**. Lokaal is het index-token leeg, tenzij je `INDEX_TOKEN`
+in `.env` zet; vul dan dezelfde waarde in.
+
+Frontend ontwikkelen met hot reload, tegen de API uit compose:
+
+```bash
+cd client && npm install && npm run dev
+```
+
+Tests:
+
+```bash
+cd client && npm test
+cd server && pip install -r requirements.txt && pytest   # API-tests met DB_HOST=… tegen een database met pgvector
+cd host && pip install -r requirements.txt pytest && pytest
+```
+
+## Structuur
+
+```
+client/      React + Vite + MUI (huisstijl): chat en Indexen-scherm;
+             praat met de NAS en met Ollama                                     → NAS
+server/      FastAPI: zoeken, afkortingen, gesprekken, documenten lezen,
+             knippen en opslaan; geen AI-modellen                               → NAS
+database/    Postgres 16 + pgvector, schema in init.sql                         → NAS
+host/        CLI-indexer en evaluatie, draaien naast Ollama                     → jouw computer
+```
+
+## Configuratie op de NAS
+
+| Variabele | Waar | Betekenis |
+|---|---|---|
+| `DB_USER`, `DB_NAME` | GitHub variable | database |
+| `DB_PASSWORD` | GitHub secret | database |
+| `INDEX_TOKEN` | GitHub secret | token om de index en de bronnen te wijzigen, verplicht op acc en prod (`openssl rand -hex 32`) |
+| `DOCUMENTS_DIR` | GitHub variable (optioneel) | map op de NAS die de server mag lezen, standaard `/` (de hele NAS) |
+| `LLM_MODEL_NAME` | GitHub variable (optioneel) | standaard chatmodel, standaard `gemma4:latest` |
+| `LLM_SYSTEM_PROMPT` | GitHub variable (optioneel) | standaard-systeemprompt; leeg is de Nederlandse prompt uit `server/app/config.py` |
+| `NO_ANSWER_RESPONSE` | GitHub variable (optioneel) | standaardantwoord als er geen bronnen zijn |
+
+Dit zijn alleen standaardwaarden: in de app pas je ze aan onder **Instellingen**. Dat geldt ook voor
+`PARENT_CHUNK_SIZE` (1500), `CHILD_CHUNK_SIZE` (een kwart daarvan), `PARENT_CHUNK_OVERLAP` (300),
+`MAX_FILE_MB` (50), `RETRIEVAL_TOP_K` (50), `CONTEXT_TOP_N` (10), `AUTOMERGE_THRESHOLD` (0.5),
+`MIN_SIMILARITY` (0.5),
+`QUERY_MAX_LENGTH` (4000), `CHAT_HISTORY_MAX_TURNS` (10), `LLM_TEMPERATURE` (1.0), `LLM_TOP_P` (0.95),
+`LLM_TOP_K` (64), `LLM_NUM_CTX` (32000) en `LLM_MAX_TOKENS` (32000), met hun standaard in
+`server/app/config.py`.
+Het embeddingmodel kies je onder **Instellingen → Indexeren** (standaard `EMBED_MODEL`, `qwen3-embedding:latest`);
+de app en de CLI indexeren daarmee, en vragen gebruiken automatisch het model waarmee de index gebouwd is.
+
+## Deploy
+
+Volgens de shelly-nas standaarden (`shelly-fundamentals`): elke PR naar `main` gaat naar acc, en het
+mergen van de release-PR van release-please deployt productie. Eenmalig:
+
+1. GitHub → *Settings → Secrets and variables → Actions*: variables `REGISTRY_URL`, `REGISTRY_USERNAME`,
+   `DB_USER`, `DB_NAME` (en optioneel `DOCUMENTS_DIR`, `LLM_MODEL_NAME`, `LLM_SYSTEM_PROMPT`, `NO_ANSWER_RESPONSE`);
+   secrets `REGISTRY_PASSWORD`, `DB_PASSWORD` en `INDEX_TOKEN`.
+2. *Settings → Actions → General*: "Allow GitHub Actions to create and approve pull requests" aanzetten.
+3. Op de NAS: `mkdir -p /volume1/docker/shelly-chat/data/postgres && sudo chown -R 70:70 /volume1/docker/shelly-chat/data/postgres`,
+   en `mkdir -p /volume1/docker/shelly-chat/documents` voor de demodata op acc.
+4. Na de eerste deploy: open **Indexen**, vul het `INDEX_TOKEN` in, maak een index, voeg de bronnen
+   toe en klik op **Index bijwerken**. De database op acc wordt bij elke deploy opnieuw opgebouwd. Op
+   acc staat daarom al een index "Alle documenten" klaar met `/volume1/docker/shelly-chat/documents` als bron (demodata);
+   je hoeft daar alleen op **Alle indexen bijwerken** te klikken.

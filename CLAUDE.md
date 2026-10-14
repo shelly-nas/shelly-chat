@@ -1,125 +1,94 @@
-# CLAUDE.md
+# shelly-chat
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Deze app volgt de shelly-nas standaarden uit de plugin **`shelly-fundamentals@shelly-nas`**
+(repo `shelly-nas/shelly-fundamentals`). Gebruik de skills daaruit: `stack-voorkeuren`, `docker-traefik`,
+`release-deploy`, `database-migraties`, `conventional-commits` en `design-richtlijnen`.
 
-## graphify
+Is de plugin niet geladen, dan gelden in elk geval deze regels:
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+- **Stack:** React + Vite + TypeScript + MUI (`client/`), Python 3.12 + FastAPI (`server/`, poort 3000, alles onder
+  `/api`, met `GET /api/health`), PostgreSQL 16 (`database/`).
+- **Lokaal:** `docker-compose.yml` bouwt vanuit de broncode. **Productie:** `docker-compose.prod.yml`
+  gebruikt alleen images met een gepinde `IMAGE_TAG`, achter Traefik op `shelly-network`, op
+  `chat.shelly-nas.nl`.
+- **Acc:** elke PR naar `main` wordt gedeployd naar `chat-acc.shelly-nas.nl` via
+  `docker-compose.acc.yml` en `.github/workflows/acc.yml`, met een verse database met demodata.
+  Houd `docker-compose.acc.yml` gelijk aan prod, op namen en host na.
+- **Geheimen** staan alleen in `.env` (niet in git) en in GitHub-secrets. Een nieuwe env-variabele
+  komt in `docker-compose.prod.yml` én `docker-compose.acc.yml`, in `env_file_content` van `deploy.yml` én `acc.yml`, en in `.env.example`.
+- **Schemawijzigingen:** vóór 1.0.0 in `database/init.sql`. Daarna als idempotente, additieve
+  migratie `server/migrations/NNN_*.sql`, en `init.sql` wordt meegewerkt.
 
-Rules:
-- ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files, running grep/glob searches, or answering codebase questions. The graph is your primary map of the codebase.
-- IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
-- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
-- The graph shows structure and relationships, but NOT runtime behavior or inline logic. For questions like "does X happen automatically during Y?" always read the actual source function — don't infer from node names or community membership alone.
+## Commitberichten
 
-## Architecture Overview
+Versiebeheer is automatisch: release-please leidt de volgende versie af uit de commitberichten op
+`main`. **Elke commit is daarom een Conventional Commit.**
 
-This is a local RAG (Retrieval-Augmented Generation) system for searching organizational documents using locally-running LLMs. It consists of three independently deployable services:
+| Prefix | Bump |
+|---|---|
+| `fix:` | patch |
+| `feat:` | minor |
+| `feat!:` / `BREAKING CHANGE:` in de body | major |
+| `perf:` `refactor:` `docs:` `test:` `ci:` `build:` `chore:` | geen |
 
-```
-indexing/      — CLI tool: fetches documents from GitLab, chunks, embeds, stores in Qdrant
-generating/    — FastAPI backend: query expansion → embed → retrieve → rerank → stream LLM
-chat-app/      — Next.js frontend: proxies SSE from backend, renders streamed responses
-vector-db/     — Persistent data: docstore.json (parent nodes), abbreviations.json, .indexing.lock
-```
+Eén logische wijziging per commit. De samenvatting in de gebiedende wijs en met een kleine letter.
+Pas nooit handmatig een versienummer aan.
 
-**Ollama runs on the host machine** (never in Docker) at `localhost:11434`. The three services run in Docker via `docker-compose.yml`. The indexer runs locally and connects to Qdrant in Docker.
+## Architectuur van shelly-chat (wijkt af van een standaard shelly-app)
 
-### RAG Retrieval Strategy
+Een RAG-chatbot. **De NAS draait geen enkel model.** De taalmodellen draaien met Ollama op de computer
+van de gebruiker, en de browser praat daar zelf mee.
 
-The retrieval pipeline uses **Hierarchical Auto-Merging** (LlamaIndex):
-1. Documents are chunked into parent nodes (`PARENT_CHUNK_SIZE` tokens, default 1500) and child nodes (`CHILD_CHUNK_SIZE = PARENT // 4`)
-2. Only child node vectors are stored in Qdrant; parent nodes live in `vector-db/docstore.json`
-3. At query time: embed query → top-K child similarity search → AutoMergingRetriever (promotes child groups to parent when ≥ `AUTOMERGE_THRESHOLD` fraction of siblings retrieved) → SentenceTransformerRerank → top-N to LLM
-4. After retrieval, the embed model is unloaded from Ollama before the LLM loads — they run sequentially to fit in limited VRAM
-
-### SSE Event Protocol
-
-The `/api/chat` endpoint streams Server-Sent Events in this order:
-1. `event: expansions` — list of abbreviation expansions applied to the query
-2. `event: contexts` — retrieved document chunks with metadata
-3. `event: token` — individual LLM response tokens
-4. `event: metrics` — wall time and model name
-5. `event: done` — stream complete
-6. `event: error` — on any failure
-
-The Next.js route at `chat-app/src/app/api/chat/route.ts` proxies this SSE stream from the FastAPI backend.
-
-## Development Commands
-
-### Python backend (indexing + generating)
-
-```bash
-# Setup
-uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt
-
-# Run generating service locally
-uvicorn generating.app:app --port 8000 --reload
-
-# Run indexer (sources configured via .env)
-python -m indexing.indexer
-python -m indexing.indexer --full-reindex        # after changing chunk sizes or embed model
-python -m indexing.indexer --build-abbreviations # backfill abbreviations without re-indexing
-
-# Run tests (requires FastAPI service running)
-pytest tests/ -v
-pytest tests/test_rag_eval.py -v -s -m slow      # end-to-end RAGAS evaluation (slow)
-```
-
-### Next.js frontend
-
-```bash
-cd chat-app
-npm install
-npm run dev      # dev server at http://localhost:3000
-npm run build
-npm run lint
-```
-
-### Docker
-
-```bash
-docker compose up -d          # start all services
-docker compose up -d generating  # start only backend
-docker compose logs -f generating
-```
-
-## Environment Variables
-
-All config is loaded from `.env` in the project root. Key variables:
-
-| Variable | Default | Notes |
+| Map | Draait op | Rol |
 |---|---|---|
-| `GITLAB_WIKI_URLS` | — | Comma-separated GitLab wiki URLs to index |
-| `GITLAB_REPO_URLS` | — | Comma-separated GitLab repo URLs to index |
-| `GITLAB_PAT` | — | GitLab Personal Access Token (`read_wiki`, `read_repository` scopes) |
-| `LLM_MODEL_NAME` | `gemma4:latest` | Ollama model for generation |
-| `EMBED_MODEL` | `qwen3-embedding:latest` | Ollama embedding model |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Host address differs inside Docker: `host.docker.internal:11434` |
-| `QDRANT_URL` | `http://localhost:6333` | In Docker: `http://qdrant:6333` |
-| `LLM_SYSTEM_PROMPT` | — | Override the system prompt for the LLM |
-| `VERBOSE` | `0` | Set to `1` for detailed per-request retrieval logging |
-| `RETRIEVAL_TOP_K` | `20` | Number of child nodes fetched from Qdrant |
-| `RERANKER_TOP_N` | `5` | Nodes passed to LLM after reranking |
+| `client/` | NAS (nginx) | React + MUI. Roept `/api` op de NAS aan **én** Ollama op `localhost:11434` (`src/lib/ollama.ts`, `src/lib/rag.ts`) |
+| `server/` | NAS | FastAPI zonder AI-modellen: afkortingen (`/api/expand`), vectorzoeken + auto-merge (`/api/retrieve`), gesprekken, indexen en index-API (`/api/indexes/*`, `/api/index/*`, schrijven met `INDEX_TOKEN`), systeemprompt (`/api/settings`), en documenten opsommen, lezen, uitpakken + knippen (`/api/indexes/{id}/files`, `/api/index/prepare`, LlamaIndex' tekstsplitter), originelen serveren (`/api/files/…`) |
+| `database/` | NAS | Postgres 16 + **pgvector** (in `database/Dockerfile` gebouwd op `postgres:16-alpine`, zodat uid 70 blijft). CI gebruikt `pgvector/pgvector:0.8.0-pg16`; houd de versies gelijk |
+| `host/` | computer met Ollama | CLI-indexer en RAGAS-evaluatie. Geen Docker, niet in de deploy |
 
-## Key Files
+Vraagflow: `POST /api/expand` → Ollama `/api/embed` (model van de index, `GET /api/config`) →
+`POST /api/retrieve` → Ollama `/api/chat` (streaming NDJSON) → `POST /api/conversations`.
+`host/rag.py` is dezelfde flow in Python. Wijzig je de prompt of de stappen, doe dat dan in beide.
+Zoeken (`server/app/retrieval.py`): cosine op de leaves én trefwoorden (`chunks.tsv`, Nederlands + Engels), samengevoegd
+met reciprocal rank fusion; dan minimale en relatieve relevantie, auto-merge (beste leaf + bonus) en MMR voor de top-N.
+De vraag krijgt bij het embedden een modelafhankelijk voorvoegsel (`query_prefix` uit `/api/config`, `app/embedding.py`).
+Elke chunk krijgt zijn kopjespad in `metadata.section_context`. Verander je wat `documents.split` opslaat of embedt,
+verhoog dan `SPLIT_VERSION`: alle documenten worden dan bij de volgende run opnieuw geknipt en geëmbed.
+Het taalmodel blijft na een antwoord geladen (`keep_alive` 10m, `LLM_KEEP_ALIVE` in `ollama.ts`); alleen het
+embeddingmodel wordt direct ontladen. Elk antwoord bewaart waar de tijd in ging (`messages.timings`: zoeken,
+model laden, prompt inlezen, schrijven, uit Ollama's eindstatistieken).
 
-- [generating/app.py](generating/app.py) — FastAPI app: all endpoints, retrieval pipeline, session management, Ollama model lifecycle
-- [generating/query_expander.py](generating/query_expander.py) — Abbreviation expansion from `abbreviations.json`; the legacy LLM-based expansion functions at the bottom are unused
-- [indexing/indexer.py](indexing/indexer.py) — Document ingestion: GitLab fetching, HierarchicalNodeParser, incremental sync via Qdrant payloads, abbreviation extraction
-- [indexing/change_detection.py](indexing/change_detection.py) — SHA-256 change detection via `content_hash`/`file_path` in Qdrant point payloads (no manifest file)
-- [indexing/version_stamp.py](indexing/version_stamp.py) — Config version stamp in the `index_meta` Qdrant collection; drift triggers automatic full reindex
-- [indexing/lock.py](indexing/lock.py) — flock on `vector-db/.indexing.lock`: exclusive during indexing, shared during docstore reload
-- [vector-db/abbreviations.json](vector-db/abbreviations.json) — Built at index time; used at query time for fast dict-based expansion
-- [chat-app/src/app/page.tsx](chat-app/src/app/page.tsx) — Main chat UI; handles SSE parsing, session state, query expansion toggle
+Er zijn meerdere benoemde indexen (`indexes`, met `index_sources` en gitignore-achtige `ignore_patterns`, beheerd via
+`/api/indexes/*`). Documenten en chunks zijn gedeeld; `index_documents` zegt welk document in welke index zit, en een
+document zonder index wordt opgeruimd. Embeddingmodel en chunkgroottes (`index_meta`) gelden voor alle indexen samen.
+`/api/expand`, `/api/retrieve` en `POST /api/conversations` krijgen een `index_id`; een gesprek houdt zijn index.
+De index is optioneel: zonder index, of als zoeken mislukt, antwoordt het model zonder bronnen (`ask` in `rag.ts`,
+`ask` in `host/rag.py`). Laat een fout in expand/embed/retrieve de chat dus nooit blokkeren.
 
-## Incremental Indexing
+Indexflow (scherm Indexen, `client/src/lib/indexer.ts`), per index: `GET /api/indexes/{id}/files` (NAS somt de
+documenten in de bronnen op, na de ignore-patronen) → `POST /api/index/prepare` (NAS leest, pakt uit, hasht, knipt;
+ongewijzigd komt direct in de index en stopt hier) → Ollama `/api/embed` voor de leaves → `PUT /api/index/documents`
+→ `POST /api/indexes/{id}/prune` (alleen als elke bron gelezen kon worden).
+`host/indexing/indexer.py` is dezelfde run als CLI. Wijzig je de regels (reset, verwijderen), doe dat dan in beide.
+Er draait één run tegelijk: beide nemen eerst het slot `PUT /api/index/run` (`server/app/runlock.py`, in het geheugen,
+lease van 3 minuten) en verlengen het elke 30 s. In de app hoort de run bij de hele app (`client/src/indexRun.tsx`),
+niet bij een scherm.
 
-On each run the indexer scrolls Qdrant once to read back each indexed file's `file_path` and `content_hash` payloads — **there is no manifest file**; Qdrant is the single source of truth:
-- **New/changed** documents are re-embedded and upserted
-- **Deleted** documents are cleaned from Qdrant and docstore
-- **Unchanged** documents are skipped (no embedding calls)
+Gedeelde instellingen (systeemprompt, generatie, zoeken, embeddingmodel, chunkgroottes, maximale bestandsgrootte) staan in
+`app_settings` (`server/app/settings.py`, `GET/PUT /api/settings`, wijzigen met het token). Zonder rij geldt de
+standaard uit `config.py`/de omgeving. Ze komen via `GET /api/config` bij de browser en `host/rag.py`, en via
+`GET /api/index/settings` bij de indexers. Er is geen geschiedenis: elke vraag gebruikt de laatste waarde. Een nieuwe
+gedeelde instelling komt in `SETTINGS` in `settings.py` én in `FIELDS` in `client/src/pages/SettingsPage.tsx`.
+Instellingen van één browser (Ollama, model, denken uit) staan in `client/src/lib/settings.ts`.
 
-Changing `PARENT_CHUNK_SIZE`, `CHILD_CHUNK_SIZE`, `PARENT_CHUNK_OVERLAP`, or `EMBED_MODEL` is detected automatically via the `index_meta` version stamp and triggers a full rebuild; `--full-reindex` forces one on demand. The reset drops both Qdrant collections and the docstore, then writes the new stamp immediately so an interrupted rebuild resumes incrementally.
+De server leest documenten uit `DOCUMENTS_DIR`, alleen-lezen gemount op `/data/documents`. Op acc en prod is dat `/`,
+de hele NAS: in de UI zijn bronnen absolute paden. Opgeslagen bronnen en `file_path`s zijn altijd relatief aan die
+map; ga voor elk pad door `app/files.py` (`normalize` zet een absoluut pad om, `resolve` weigert paden buiten de map).
+Omdat de server de hele NAS ziet: bladeren vraagt het token, `/api/files` serveert alleen geïndexeerde documenten,
+`/` kan geen bron zijn en systeemmappen worden overgeslagen. Houd die grenzen.
+
+Regels:
+- Zet niets op de server dat een model laadt (geen torch, sentence-transformers of Ollama-calls). De tekstsplitter van llama-index-core is geen model en mag.
+- Het index-token van een gebruiker blijft in de browser (localStorage); sla het niet op de NAS op.
+- De `embedding`-kolom heeft geen vaste dimensie. Een ander embeddingmodel betekent een reset door de indexer, geen migratie.
+- Ollama staat alleen origins toe die in `OLLAMA_ORIGINS` staan. Nieuwe hostnamen moeten in de README-instructies.

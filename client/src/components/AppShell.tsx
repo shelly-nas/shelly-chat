@@ -1,0 +1,305 @@
+// App shell from design-richtlijnen/patterns.md: a 248px sidebar with the app,
+// the conversations and the user's tools; on narrow screens a top bar with a
+// menu instead.
+import AddIcon from "@mui/icons-material/Add";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
+import MenuIcon from "@mui/icons-material/Menu";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import SourceOutlinedIcon from "@mui/icons-material/SourceOutlined";
+import {
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Drawer,
+  IconButton,
+  LinearProgress,
+  List,
+  ListItemButton,
+  ListItemText,
+  Skeleton,
+  Snackbar,
+  Stack,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
+import { useState, type ReactNode } from "react";
+import { useMatch, useNavigate } from "react-router-dom";
+
+import { useAppState } from "../appState";
+import { useIndexRun } from "../indexRun";
+import { useColorMode } from "../colorMode";
+import { api } from "../lib/api";
+import type { ConversationSummary } from "../lib/types";
+import OllamaStatus from "./OllamaStatus";
+
+const SIDEBAR_WIDTH = 248;
+
+function Brand() {
+  return (
+    <Stack direction="row" spacing={3} alignItems="center">
+      <Avatar variant="rounded" sx={{ width: 32, height: 32, borderRadius: 2, bgcolor: "primary.main", color: "primary.contrastText" }}>
+        <ChatBubbleOutlineIcon fontSize="small" aria-hidden />
+      </Avatar>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontSize: 14, fontWeight: 700, color: "text.primary", lineHeight: 1.3 }}>
+          Shelly Chat
+        </Typography>
+        <Typography variant="caption">Documentassistent</Typography>
+      </Box>
+    </Stack>
+  );
+}
+
+function ConversationList({ onNavigate }: { onNavigate: () => void }) {
+  const { conversations, conversationsError, refreshConversations } = useAppState();
+  const navigate = useNavigate();
+  const match = useMatch("/c/:id");
+  const [toDelete, setToDelete] = useState<ConversationSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!toDelete) return;
+    setDeleting(true);
+    try {
+      await api.deleteConversation(toDelete.id);
+      if (match?.params.id === toDelete.id) navigate("/");
+      await refreshConversations();
+      setToast("Gesprek verwijderd");
+    } catch (err) {
+      setToast(`Verwijderen mislukt: ${(err as Error).message}`);
+    } finally {
+      setDeleting(false);
+      setToDelete(null);
+    }
+  };
+
+  if (conversationsError) {
+    return (
+      <Alert severity="error" action={<Button size="small" onClick={refreshConversations}>Opnieuw</Button>}>
+        Gesprekken laden mislukt.
+      </Alert>
+    );
+  }
+  if (conversations === null) {
+    return (
+      <Stack spacing={2}>
+        {[0, 1, 2].map((i) => <Skeleton key={i} variant="rounded" height={40} />)}
+      </Stack>
+    );
+  }
+  if (conversations.length === 0) {
+    return (
+      <Typography variant="body2" sx={{ px: 3 }}>
+        Nog geen gesprekken. Je vragen en antwoorden komen hier te staan.
+      </Typography>
+    );
+  }
+
+  return (
+    <>
+      <List disablePadding sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        {conversations.map((c) => (
+          <ListItemButton
+            key={c.id}
+            selected={match?.params.id === c.id}
+            onClick={() => {
+              navigate(`/c/${c.id}`);
+              onNavigate();
+            }}
+            sx={{ height: "auto", minHeight: 48, py: 1, pr: 1, "& .delete": { opacity: 0 }, "&:hover .delete, &:focus-within .delete": { opacity: 1 } }}
+          >
+            <ListItemText
+              primary={c.title}
+              secondary={c.index_name ?? "Zonder index"}
+              primaryTypographyProps={{ noWrap: true, fontSize: 14, fontWeight: "inherit", color: "inherit" }}
+              secondaryTypographyProps={{ noWrap: true, fontSize: 12, color: "text.secondary" }}
+            />
+            <IconButton
+              className="delete"
+              size="small"
+              aria-label={`Gesprek "${c.title}" verwijderen`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setToDelete(c);
+              }}
+            >
+              <DeleteOutlineIcon fontSize="small" />
+            </IconButton>
+          </ListItemButton>
+        ))}
+      </List>
+      <Dialog open={toDelete !== null} onClose={() => !deleting && setToDelete(null)} maxWidth="xs" fullWidth>
+        <DialogTitle variant="h3">Gesprek verwijderen?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1">
+            “{toDelete?.title}” en alle antwoorden erin verdwijnen voorgoed van de NAS.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 6, pb: 6 }}>
+          <Button variant="text" onClick={() => setToDelete(null)} disabled={deleting}>
+            Annuleren
+          </Button>
+          <Button variant="outlined" color="error" onClick={confirmDelete} disabled={deleting}>
+            {deleting ? "Verwijderen…" : "Verwijderen"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Snackbar
+        open={toast !== null}
+        autoHideDuration={2400}
+        onClose={() => setToast(null)}
+        message={toast}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      />
+    </>
+  );
+}
+
+function Sidebar({ onNavigate }: { onNavigate: () => void }) {
+  const navigate = useNavigate();
+  const { mode, toggle } = useColorMode();
+  const onIndex = useMatch("/index/*") !== null;
+  const onSettings = useMatch("/instellingen") !== null;
+  const openSettings = () => {
+    navigate("/instellingen");
+    onNavigate();
+  };
+  const { indexes } = useAppState();
+  const run = useIndexRun();
+
+  return (
+    <Box
+      component="nav"
+      aria-label="Gesprekken"
+      sx={{
+        width: SIDEBAR_WIDTH,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        px: 4,
+        py: 6,
+        bgcolor: "background.paper",
+        borderRight: 1,
+        borderColor: "divider",
+      }}
+    >
+      <Brand />
+      <Button
+        variant="outlined"
+        startIcon={<AddIcon />}
+        fullWidth
+        onClick={() => {
+          navigate("/");
+          onNavigate();
+        }}
+      >
+        Nieuw gesprek
+      </Button>
+      <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+        <Typography variant="overline" component="h2" sx={{ px: 3 }}>
+          Gesprekken
+        </Typography>
+        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", mx: -1, px: 1 }}>
+          <ConversationList onNavigate={onNavigate} />
+        </Box>
+      </Box>
+      <Stack spacing={1}>
+        <ListItemButton
+          selected={onIndex}
+          onClick={() => {
+            navigate("/index");
+            onNavigate();
+          }}
+        >
+          <SourceOutlinedIcon fontSize="small" aria-hidden />
+          <ListItemText primary="Indexen" primaryTypographyProps={{ fontSize: 14, fontWeight: "inherit", color: "inherit" }} />
+          {indexes && !run.running && (
+            <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {indexes.length}
+            </Typography>
+          )}
+        </ListItemButton>
+        {run.running && (
+          // The run goes on while you are elsewhere in the app: show where it is.
+          <Box role="status" sx={{ px: 3, pb: 2 }}>
+            <Typography variant="caption" component="p" noWrap sx={{ color: "text.secondary", mb: 1 }}>
+              Indexeren{run.label ? ` ${run.label}` : ""}
+              {run.progress?.phase === "listing"
+                ? " · opsommen…"
+                : run.progress?.phase === "finishing"
+                  ? " · afronden…"
+                  : run.progress?.total
+                    ? ` · ${run.progress.done}/${run.progress.total}`
+                    : "…"}
+            </Typography>
+            <LinearProgress
+              variant={run.progress?.phase === "indexing" && run.progress.total ? "determinate" : "indeterminate"}
+              value={run.progress?.total ? (run.progress.done / run.progress.total) * 100 : 0}
+              sx={{ height: 4, borderRadius: 2 }}
+              aria-label="Voortgang van het indexeren"
+            />
+          </Box>
+        )}
+        <OllamaStatus onClick={openSettings} />
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <ListItemButton selected={onSettings} onClick={openSettings} sx={{ flex: 1 }}>
+            <SettingsOutlinedIcon fontSize="small" aria-hidden />
+            <ListItemText primary="Instellingen" primaryTypographyProps={{ fontSize: 14, fontWeight: "inherit", color: "inherit" }} />
+          </ListItemButton>
+          <Tooltip title={mode === "dark" ? "Lichte modus" : "Donkere modus"}>
+          <IconButton aria-label={mode === "dark" ? "Lichte modus" : "Donkere modus"} onClick={toggle}>
+            {mode === "dark" ? <LightModeOutlinedIcon fontSize="small" /> : <DarkModeOutlinedIcon fontSize="small" />}
+          </IconButton>
+          </Tooltip>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}
+
+export default function AppShell({ children }: { children: ReactNode }) {
+  const theme = useTheme();
+  const narrow = useMediaQuery(theme.breakpoints.down("md"));
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const sidebar = <Sidebar onNavigate={() => setDrawerOpen(false)} />;
+
+  return (
+    <Box sx={{ display: "flex", height: "100dvh", bgcolor: "background.default" }}>
+      {narrow ? (
+        <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+          {sidebar}
+        </Drawer>
+      ) : (
+        <Box sx={{ flex: `0 0 ${SIDEBAR_WIDTH}px` }}>{sidebar}</Box>
+      )}
+      <Box component="main" sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {narrow && (
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={2}
+            sx={{ px: 2, height: 56, flexShrink: 0, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}
+          >
+            <IconButton aria-label="Menu openen" onClick={() => setDrawerOpen(true)} sx={{ width: 44, height: 44 }}>
+              <MenuIcon />
+            </IconButton>
+            <Brand />
+          </Stack>
+        )}
+        {children}
+      </Box>
+    </Box>
+  );
+}

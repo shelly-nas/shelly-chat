@@ -1,0 +1,97 @@
+"""Configuration from the environment.
+
+The model settings here are defaults the browser picks up through
+GET /api/config: the browser talks to Ollama itself, the server never does.
+"""
+
+import os
+
+
+def _int(name: str, default: int) -> int:
+    return int(os.getenv(name) or default)
+
+
+def _float(name: str, default: float) -> float:
+    return float(os.getenv(name) or default)
+
+
+SERVER_PORT = _int("SERVER_PORT", 3000)
+
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = _int("DB_PORT", 5432)
+DB_USER = os.getenv("DB_USER", "chat")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_NAME = os.getenv("DB_NAME", "chat")
+
+# Bearer token the indexer has to send to change the index. Empty means the
+# index endpoints are open, which is only acceptable locally; the production
+# and acc compose files refuse to start without it.
+INDEX_TOKEN = os.getenv("INDEX_TOKEN", "")
+
+# The documents folder: where the server finds the files to index, mounted
+# read-only. DOCUMENTS_DIR is the same folder as the NAS sees it (/ on acc and
+# prod). When it is absolute, sources are shown and may be typed as absolute
+# paths on the NAS (see app/files.py).
+DOCUMENTS_ROOT = os.getenv("DOCUMENTS_ROOT", "/data/documents")
+DOCUMENTS_DIR = os.getenv("DOCUMENTS_DIR", "")
+
+# Everything below is a default. People change these in the app (Settings);
+# what they set is stored in app_settings and wins (see app/settings.py).
+
+# Chunking. A change resets the index on the next indexing run: chunks of
+# two sizes do not mix. CHILD_CHUNK_SIZE defaults to a quarter of the parent,
+# the ratio LlamaIndex's auto-merging is designed for.
+PARENT_CHUNK_SIZE = _int("PARENT_CHUNK_SIZE", 1500)
+CHILD_CHUNK_SIZE = _int("CHILD_CHUNK_SIZE", PARENT_CHUNK_SIZE // 4)
+PARENT_CHUNK_OVERLAP = _int("PARENT_CHUNK_OVERLAP", 300)
+# The Ollama model that embeds the chunks and the questions. A change, like
+# one of the chunk sizes, rebuilds every index on the next run.
+EMBED_MODEL = os.getenv("EMBED_MODEL") or "qwen3-embedding:latest"
+# Larger files are not indexed: the server sees the whole NAS.
+MAX_FILE_MB = _int("MAX_FILE_MB", 50)
+
+# Retrieval. Without a reranker, more candidates give auto-merging more to
+# work with; ten sources fit easily in a 32k context.
+RETRIEVAL_TOP_K = _int("RETRIEVAL_TOP_K", 50)
+CONTEXT_TOP_N = _int("CONTEXT_TOP_N", 10)
+AUTOMERGE_THRESHOLD = _float("AUTOMERGE_THRESHOLD", 0.5)
+# Leaves with a lower cosine similarity are dropped; nothing left means the
+# no-answer text, without asking the model. 0 is off. The right value depends
+# on the embedding model; with qwen3-embedding, matches under 0.5 are noise.
+MIN_SIMILARITY = _float("MIN_SIMILARITY", 0.5)
+# Only sources within this much of the best one count; 0 is off. Adapts to
+# the question and the model, where MIN_SIMILARITY is a fixed floor.
+RELATIVE_SIMILARITY = _float("RELATIVE_SIMILARITY", 0.15)
+# Search on keywords too (names, numbers, exact terms) and merge both lists.
+HYBRID_SEARCH = os.getenv("HYBRID_SEARCH", "true").lower() != "false"
+# Maximal marginal relevance: 1 is relevance only, lower favours sources that
+# differ from the ones already chosen (fewer near-duplicates).
+MMR_LAMBDA = _float("MMR_LAMBDA", 0.7)
+QUERY_MAX_LENGTH = _int("QUERY_MAX_LENGTH", 4000)
+# Without a relevant source the model still answers, marked as outside the
+# sources (see the system prompt). false: answer NO_ANSWER_RESPONSE right away.
+ANSWER_WITHOUT_SOURCES = os.getenv("ANSWER_WITHOUT_SOURCES", "true").lower() != "false"
+
+DEFAULT_SYSTEM_PROMPT = """Beantwoord de vraag in het Nederlands. Vandaag is het {today}.
+
+Gebruik deze opbouw:
+1. **Uit de documenten** – alles wat in de BRONNEN staat, met bij elke bewering een verwijzing [nummer] (bijv. [1], [2,3]). Laat dit deel weg als de bronnen niets bruikbaars bevatten.
+2. **Buiten de bronnen** – alleen als de bronnen de vraag niet (volledig) beantwoorden. Begin met: "Dit staat niet in de documentatie; op basis van algemene kennis:" en geef dan je beste antwoord, zonder bronnummers.
+
+Meng de twee delen niet. Verzin geen bronnen, en zeg het als je ook buiten de bronnen het antwoord niet weet."""
+DEFAULT_NO_ANSWER_RESPONSE = (
+    "Er is geen relevante informatie gevonden in onze kennisbank die kan helpen om jouw vraag te beantwoorden."
+)
+
+# Generation defaults for the browser. Empty variables count as unset, so the
+# compose files can pass them through without a default of their own.
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME") or "gemma4:latest"
+LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT") or DEFAULT_SYSTEM_PROMPT
+NO_ANSWER_RESPONSE = os.getenv("NO_ANSWER_RESPONSE") or DEFAULT_NO_ANSWER_RESPONSE
+CHAT_HISTORY_MAX_TURNS = _int("CHAT_HISTORY_MAX_TURNS", 10)
+LLM_TEMPERATURE = _float("LLM_TEMPERATURE", 1.0)
+LLM_TOP_P = _float("LLM_TOP_P", 0.95)
+LLM_TOP_K = _int("LLM_TOP_K", 64)
+# Context window (prompt + answer) and the longest answer, in tokens.
+LLM_NUM_CTX = _int("LLM_NUM_CTX", 32000)
+LLM_MAX_TOKENS = _int("LLM_MAX_TOKENS", 32000)

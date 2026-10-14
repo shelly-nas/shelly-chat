@@ -1,47 +1,78 @@
+# Local stack: the same three services that run on the NAS, built from source.
+#
+# Ollama is not part of it. It runs on your own machine, and the browser talks
+# to it directly at http://localhost:11434 - see README.md for the one-time
+# OLLAMA_ORIGINS setting. The indexer (host/) also runs outside Docker.
 services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - ./vector-db/qdrant_storage:/qdrant/storage
-    restart: unless-stopped
-
-  generating:
+  client: # Frontend service (nginx serving the built Vite app)
     build:
-      context: .
-      dockerfile: generating/Dockerfile
-      args:
-        RERANKER_MODEL_NAME: ${RERANKER_MODEL_NAME:-cross-encoder/ms-marco-MiniLM-L-6-v2}
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./vector-db:/app/vector-db
-      - ./data:/app/data
-    env_file:
-      - .env
-    environment:
-      - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - GITLAB_PAT  # Imported if declared in shell
-    depends_on:
-      - qdrant
-    restart: unless-stopped
-
-  frontend:
-    build:
-      context: ./chat-app
+      context: ./client
       dockerfile: Dockerfile
-      args:
-        BACKEND_URL: http://generating:8000
-    environment:
-      - BACKEND_URL=http://generating:8000
     ports:
-      - "3000:3000"
+      - "5173:80"  # Browse the app at http://localhost:5173
     depends_on:
-      - generating
-    restart: unless-stopped
+      - server
+
+  server: # Backend service
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"  # API only - the indexer can use http://localhost:3000 directly
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-chat}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD ontbreekt - zet hem in .env}
+      DB_NAME: ${DB_NAME:-chat}
+      SERVER_PORT: 3000
+      # Empty locally is allowed: the index endpoints are then open.
+      INDEX_TOKEN: ${INDEX_TOKEN:-}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemma4:latest}
+      # Defaults only: both are changed in the app (Settings). Empty means the
+      # Dutch defaults in server/app/config.py.
+      LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-}
+      NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-}
+      DOCUMENTS_DIR: ${DOCUMENTS_DIR:-./documents}
+    volumes:
+      # The documents to index, read-only. Put files in ./documents (not in
+      # git), or point DOCUMENTS_DIR at a folder with real documents.
+      - ${DOCUMENTS_DIR:-./documents}:/data/documents:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db: # PostgreSQL database with pgvector
+    # Built rather than pulled: postgres:16-alpine has no pgvector, the image
+    # from database/Dockerfile adds it (and is what production runs).
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-chat}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD ontbreekt - zet hem in .env}
+      POSTGRES_DB: ${DB_NAME:-chat}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # Draait alleen bij een leeg volume, in bestandsvolgorde. Zodra 1.0.0
+      # ergens met data draait, moet een schemawijziging een migratie worden -
+      # dit script wordt op een bestaand volume nooit opnieuw uitgevoerd.
+      # (Het image bevat init.sql en seed.sql ook; de mounts hieronder maken
+      # een wijziging zichtbaar zonder het image opnieuw te bouwen.)
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      # Alleen lokaal: demodata om tegen te testen. Staat bewust niet in
+      # database/Dockerfile, dus productie krijgt dit bestand nooit.
+      - ./database/seed-demo.sql:/docker-entrypoint-initdb.d/03-seed-demo.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chat} -d ${DB_NAME:-chat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
-  qdrant_storage:
+  db_data:
+    driver: local

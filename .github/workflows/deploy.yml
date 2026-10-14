@@ -1,0 +1,123 @@
+name: Release, Build & Deploy
+
+# Versioning is derived from the commit messages, not chosen by hand.
+#
+# Every push to main runs release-please, which reads the Conventional Commit
+# titles since the last tag and maintains a standing "chore(main): release
+# x.y.z" pull request carrying the changelog and the bumped version files.
+# Nothing is released while that PR sits open - merging it is the release, and
+# that merge produces the tag, the GitHub Release, and the build and deploy of
+# images tagged with that version.
+#
+# Commit prefixes that drive the bump:
+#   fix:              -> patch  (1.0.0 -> 1.0.1)
+#   feat:             -> minor  (1.0.0 -> 1.1.0)
+#   feat!: / BREAKING CHANGE in the body -> major (1.0.0 -> 2.0.0)
+#   docs:, chore:, ci:, test:, refactor: -> no release on their own
+
+on:
+  push:
+    branches:
+      - main
+  # "Run workflow" with a version builds and deploys that already-released
+  # version again: a redeploy, a rollback, or a release whose build failed.
+  # Run it on the tag (or on main when main is that release) so the images are
+  # built from the released code.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Released version to build and deploy (e.g. 1.1.0); empty for the normal release flow'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Prepare or publish release
+    runs-on: ubuntu-latest
+    outputs:
+      # 'true' on the run that merges the release PR, or when a version is
+      # given by hand.
+      released: ${{ steps.release.outputs.release_created == 'true' || inputs.version != '' }}
+      version: ${{ inputs.version || steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build-server:
+    name: Build and Push Server
+    needs: release
+    if: ${{ needs.release.outputs.released == 'true' }}
+    uses: shelly-nas/shared-workflows/.github/workflows/build-push-image.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      # Both tags: the version is what production pins to, latest is the
+      # convenience pointer.
+      image_tag: ${{ vars.REGISTRY_URL }}/shelly-chat-server:${{ needs.release.outputs.version }},${{ vars.REGISTRY_URL }}/shelly-chat-server:latest
+      context: ./server
+    secrets:
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+
+  build-client:
+    name: Build and Push Client
+    needs: release
+    if: ${{ needs.release.outputs.released == 'true' }}
+    uses: shelly-nas/shared-workflows/.github/workflows/build-push-image.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      image_tag: ${{ vars.REGISTRY_URL }}/shelly-chat-client:${{ needs.release.outputs.version }},${{ vars.REGISTRY_URL }}/shelly-chat-client:latest
+      context: ./client
+    secrets:
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+
+  build-db:
+    name: Build and Push Database
+    needs: release
+    if: ${{ needs.release.outputs.released == 'true' }}
+    uses: shelly-nas/shared-workflows/.github/workflows/build-push-image.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      image_tag: ${{ vars.REGISTRY_URL }}/shelly-chat-db:${{ needs.release.outputs.version }},${{ vars.REGISTRY_URL }}/shelly-chat-db:latest
+      context: ./database
+    secrets:
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+
+  deploy:
+    name: Deploy from Registry
+    needs: [release, build-server, build-client, build-db]
+    if: ${{ success() && needs.release.outputs.released == 'true' }}
+    uses: shelly-nas/shared-workflows/.github/workflows/deploy-production.yml@main
+    with:
+      registry: ${{ vars.REGISTRY_URL }}
+      deploy_directory: /volume1/docker/shelly-chat
+      compose_file: docker-compose.prod.yml
+      # Deploying the version rather than latest: what runs in production is
+      # then a known release, and a rollback is redeploying an earlier one.
+      # Pending database migrations are applied by the server as it starts.
+      image_tag: ${{ needs.release.outputs.version }}
+      # Once the commit on acc is part of this release, acc is torn down and
+      # its images and data cleaned up. A pull request still under review
+      # stays on acc.
+      acc_directory: /volume1/docker/shelly-chat-acc
+    secrets:
+      registry_username: ${{ vars.REGISTRY_USERNAME }}
+      registry_password: ${{ secrets.REGISTRY_PASSWORD }}
+      env_file_content: |
+        REGISTRY=${{ vars.REGISTRY_URL }}
+        IMAGE_TAG=${{ needs.release.outputs.version }}
+        DB_NAME=${{ vars.DB_NAME }}
+        DB_USER=${{ vars.DB_USER }}
+        DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+        TZ=${{ vars.TZ || 'Europe/Amsterdam' }}
+        INDEX_TOKEN=${{ secrets.INDEX_TOKEN }}
+        LLM_MODEL_NAME=${{ vars.LLM_MODEL_NAME }}
+        LLM_SYSTEM_PROMPT=${{ vars.LLM_SYSTEM_PROMPT }}
+        NO_ANSWER_RESPONSE=${{ vars.NO_ANSWER_RESPONSE }}
+        DOCUMENTS_DIR=${{ vars.DOCUMENTS_DIR }}

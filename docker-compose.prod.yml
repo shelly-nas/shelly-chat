@@ -1,0 +1,117 @@
+# Production stack.
+#
+# IMAGE_TAG is the released version (1.2.3) and is written into .env by the
+# deploy workflow. Pinning it rather than tracking 'latest' is what makes a
+# rollback a change of one line here instead of a rebuild, and what keeps a
+# container restart from silently pulling a newer build.
+#
+# The schema is created by database/init.sql on the first start of an empty
+# volume. Once this is running with data in it, a schema change can no longer go
+# there: add a migration under server/migrations/ instead, which the server
+# applies on startup.
+services:
+  db:
+    # Eigen image: het schema zit erin gebakken, omdat de deploy alleen dit
+    # compose-bestand naar de host kopieert en een bind mount naar
+    # ./database/ daar niet bestaat.
+    image: ${REGISTRY}/shelly-chat-db:${IMAGE_TAG:?IMAGE_TAG is verplicht - zet een versie, niet latest}
+    container_name: shelly-chat-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-chat}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is verplicht in productie}
+      POSTGRES_DB: ${DB_NAME:-chat}
+      TZ: ${TZ:-Europe/Amsterdam}
+    volumes:
+      # Bind mount: de data leeft op de host onder ./data/postgres en overleeft
+      # daarmee ook `docker compose down -v`, dat named volumes wist.
+      # Het pad moet op de host bestaan en eigendom zijn van uid/gid 70
+      # (de postgres-user in het alpine-image), anders weigert Postgres te starten.
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${DB_USER:-chat} -d ${DB_NAME:-chat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  server:
+    image: ${REGISTRY}/shelly-chat-server:${IMAGE_TAG:?IMAGE_TAG is verplicht - zet een versie, niet latest}
+    container_name: shelly-chat-server
+    restart: always
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-chat}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-chat}
+      SERVER_PORT: 3000
+      TZ: ${TZ:-Europe/Amsterdam}
+      # The indexer on the Ollama machine authenticates with this token.
+      INDEX_TOKEN: ${INDEX_TOKEN:?INDEX_TOKEN is verplicht}
+      # Defaults the browser uses when it talks to Ollama.
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemma4:latest}
+      # Defaults only: both are changed in the app (Settings). Empty means the
+      # Dutch defaults in server/app/config.py.
+      LLM_SYSTEM_PROMPT: ${LLM_SYSTEM_PROMPT:-}
+      NO_ANSWER_RESPONSE: ${NO_ANSWER_RESPONSE:-}
+      # The folder the server may read, as the NAS sees it. Standard / (the
+      # whole NAS), so an index source can be any path, like /home/Jelle/Documenten.
+      DOCUMENTS_DIR: ${DOCUMENTS_DIR:-/}
+    volumes:
+      # The documents to index, read-only. Acc and production read the same
+      # folder; acc only ever reads it, its index is rebuilt on every deploy.
+      # The server only lists supported documents, browsing needs INDEX_TOKEN,
+      # and /api/files serves only documents that are in an index.
+      - ${DOCUMENTS_DIR:-/}:/data/documents:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3000/api/health', timeout=4).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - shelly-network
+      - default
+    labels:
+      - "traefik.enable=true"
+      # Two networks: tell Traefik which one it can reach, or it may pick
+      # the stack's default network and answer 504 Gateway Timeout.
+      - "traefik.docker.network=shelly-network"
+      - "traefik.http.routers.chat-api.rule=Host(`chat.shelly-nas.nl`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.chat-api.entrypoints=web"
+      - "traefik.http.services.chat-api.loadbalancer.server.port=3000"
+
+  client:
+    image: ${REGISTRY}/shelly-chat-client:${IMAGE_TAG:?IMAGE_TAG is verplicht - zet een versie, niet latest}
+    container_name: shelly-chat-client
+    restart: always
+    environment:
+      TZ: ${TZ:-Europe/Amsterdam}
+    depends_on:
+      - server
+    networks:
+      - shelly-network
+      - default
+    labels:
+      - "traefik.enable=true"
+      # Two networks: tell Traefik which one it can reach, or it may pick
+      # the stack's default network and answer 504 Gateway Timeout.
+      - "traefik.docker.network=shelly-network"
+      - "traefik.http.routers.chat.rule=Host(`chat.shelly-nas.nl`)"
+      - "traefik.http.routers.chat.entrypoints=web"
+      - "traefik.http.services.chat.loadbalancer.server.port=80"
+
+networks:
+  shelly-network:
+    external: true
