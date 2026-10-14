@@ -71,6 +71,7 @@ absolute paden op de NAS, zoals `/home/Jelle/Documenten` (zie de README in de ro
 
 ```bash
 python rag.py "Mijn BV" "Hoe werkt het Renovate-proces?"   # eerst de index, dan de vraag
+python rag.py "Wat is RAG?"                                # zonder index: zonder bronnen
 ```
 
 ## Evaluatie

@@ -211,7 +211,10 @@ def test_store_validates_embeddings(client):
 
 def test_conversations_keep_their_index(client):
     idx = new_index(client, "Gesprekken", "los.md")
-    assert client.post("/api/conversations", json={"messages": []}).status_code == 422
+    # Without an index the model answers without sources; that is a conversation too.
+    plain = client.post("/api/conversations", json={"messages": [{"role": "user", "content": "Hoi"}]})
+    assert plain.status_code == 201 and plain.json()["index_id"] is None
+    assert client.post("/api/conversations", json={"index_id": 999999, "messages": []}).status_code == 422
     r = client.post(
         "/api/conversations",
         json={"index_id": idx["id"], "messages": [

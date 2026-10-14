@@ -119,7 +119,7 @@ function ConversationList({ onNavigate }: { onNavigate: () => void }) {
           >
             <ListItemText
               primary={c.title}
-              secondary={c.index_name ?? "Index verwijderd"}
+              secondary={c.index_name ?? "Zonder index"}
               primaryTypographyProps={{ noWrap: true, fontSize: 14, fontWeight: "inherit", color: "inherit" }}
               secondaryTypographyProps={{ noWrap: true, fontSize: 12, color: "text.secondary" }}
             />

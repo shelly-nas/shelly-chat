@@ -54,6 +54,8 @@ Er zijn meerdere benoemde indexen (`indexes`, met `index_sources` en gitignore-a
 `/api/indexes/*`). Documenten en chunks zijn gedeeld; `index_documents` zegt welk document in welke index zit, en een
 document zonder index wordt opgeruimd. Embeddingmodel en chunkgroottes (`index_meta`) gelden voor alle indexen samen.
 `/api/expand`, `/api/retrieve` en `POST /api/conversations` krijgen een `index_id`; een gesprek houdt zijn index.
+De index is optioneel: zonder index, of als zoeken mislukt, antwoordt het model zonder bronnen (`ask` in `rag.ts`,
+`ask` in `host/rag.py`). Laat een fout in expand/embed/retrieve de chat dus nooit blokkeren.
 
 Indexflow (scherm Indexen, `client/src/lib/indexer.ts`), per index: `GET /api/indexes/{id}/files` (NAS somt de
 documenten in de bronnen op, na de ignore-patronen) → `POST /api/index/prepare` (NAS leest, pakt uit, hasht, knipt;

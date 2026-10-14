@@ -14,7 +14,7 @@ export interface Settings {
   /** INDEX_TOKEN of the NAS, needed to change the index. */
   indexToken: string;
   /** Index a new conversation starts with: the one chosen last time. */
-  lastIndexId: number | null;
+  lastIndexId: number | "none" | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

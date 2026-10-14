@@ -54,8 +54,8 @@ export function buildMessages(
 
 export interface AskOptions {
   question: string;
-  /** The conversation's index: abbreviations and sources come only from it. */
-  indexId: number;
+  /** The conversation's index: abbreviations and sources come only from it. null: none. */
+  indexId: number | null;
   history: ChatMessage[];
   config: ServerConfig;
   ollamaUrl: string;
@@ -69,6 +69,8 @@ export interface AskOptions {
   onExpansions: (query: string, expansions: ExpansionSource[]) => void;
   onSources: (sources: SourceContext[]) => void;
   onToken: (token: string) => void;
+  /** Why the answer comes without sources although there is an index (search unavailable). */
+  onNotice?: (notice: string) => void;
 }
 
 export interface AskResult {
@@ -79,32 +81,50 @@ export interface AskResult {
   durationMs: number;
 }
 
-export async function ask(o: AskOptions): Promise<AskResult> {
-  if (!o.config.embed_model) {
-    throw new Error("Er is nog niets geïndexeerd. Open Index in de zijbalk om documenten te indexeren.");
-  }
-
+/** Search the index: expand, embed, retrieve. Throws when any step is unavailable. */
+async function search(o: AskOptions, indexId: number, embedModel: string) {
   let query = o.question;
   let expansions: ExpansionSource[] = [];
   if (o.expandQuery) {
     o.onStage("expanding");
-    ({ query, expansions } = await api.expand(o.question, o.indexId, o.signal));
+    ({ query, expansions } = await api.expand(o.question, indexId, o.signal));
     o.onExpansions(query, expansions);
   }
-
   o.onStage("embedding");
-  const embedding = await embed(o.ollamaUrl, o.config.embed_model, query, {
-    unload: o.unloadModels,
-    signal: o.signal,
-  });
-
+  const embedding = await embed(o.ollamaUrl, embedModel, query, { unload: o.unloadModels, signal: o.signal });
   o.onStage("retrieving");
-  const { contexts } = await api.retrieve(embedding, o.config.embed_model, o.indexId, o.signal);
+  const { contexts } = await api.retrieve(embedding, embedModel, indexId, o.signal);
+  return { query, expansions, contexts };
+}
+
+export async function ask(o: AskOptions): Promise<AskResult> {
+  // The index is a help, not a requirement: without one, or when searching
+  // it fails, the model still answers, without sources ("Buiten de bronnen").
+  let query = o.question;
+  let expansions: ExpansionSource[] = [];
+  let contexts: SourceContext[] = [];
+  let searched = false;
+  if (o.indexId !== null) {
+    if (!o.config.embed_model) {
+      o.onNotice?.("Er is nog niets geïndexeerd, dus dit antwoord komt zonder bronnen.");
+    } else {
+      try {
+        ({ query, expansions, contexts } = await search(o, o.indexId, o.config.embed_model));
+        searched = true;
+      } catch (err) {
+        if (o.signal?.aborted) throw err;
+        query = o.question;
+        expansions = [];
+        if (o.expandQuery) o.onExpansions(query, expansions);
+        o.onNotice?.(`Zoeken in de index lukte niet (${(err as Error).message}), dus dit antwoord komt zonder bronnen.`);
+      }
+    }
+  }
   o.onSources(contexts);
 
-  // No sources: unless the model may answer from general knowledge (marked
-  // as such by the system prompt), give the fixed no-answer text.
-  if (contexts.length === 0 && !o.config.answer_without_sources) {
+  // Nothing relevant found: unless the model may answer from general knowledge
+  // (marked as such by the system prompt), give the fixed no-answer text.
+  if (searched && contexts.length === 0 && !o.config.answer_without_sources) {
     o.onToken(o.config.no_answer_response);
     return {
       effectiveQuery: query,

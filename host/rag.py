@@ -5,6 +5,7 @@ Ollama, retrieve on the NAS, generate with the local Ollama. Used by the
 evaluation in tests/eval and handy for trying a question from the terminal:
 
     python rag.py "Mijn BV" "Hoe werkt het Renovate-proces?"
+    python rag.py "Wat is RAG?"                 # zonder index, zonder bronnen
 """
 
 import json
@@ -46,15 +47,8 @@ def index_id(name: str) -> int:
     raise RuntimeError(f"Er is geen index '{name}'. Er zijn: {', '.join(i['name'] for i in indexes) or 'geen'}.")
 
 
-def ask(question: str, index: str, history: list[dict] | None = None, llm_model: str | None = None) -> dict:
-    """Answer one question from the named index; returns answer, contexts, expansions and timing."""
-    history = history or []
-    idx = index_id(index)
-    config = requests.get(f"{SHELLY_CHAT_URL}/api/config", timeout=10).json()
-    if not config["embed_model"]:
-        raise RuntimeError("Er is nog niets geïndexeerd.")
-    model = llm_model or os.getenv("LLM_MODEL_NAME") or config["llm_model"]
-
+def search(question: str, idx: int, config: dict) -> tuple[str, list[dict], list[dict]]:
+    """Expand, embed and retrieve in one index: (query, expansions, contexts)."""
     expanded = requests.post(
         f"{SHELLY_CHAT_URL}/api/expand", json={"query": question, "index_id": idx}, timeout=10
     ).json()
@@ -72,10 +66,29 @@ def ask(question: str, index: str, history: list[dict] | None = None, llm_model:
         timeout=60,
     )
     resp.raise_for_status()
-    contexts = resp.json()["contexts"]
-    if not contexts and not config["answer_without_sources"]:
+    return query, expanded["expansions"], resp.json()["contexts"]
+
+
+def ask(question: str, index: str | None = None, history: list[dict] | None = None, llm_model: str | None = None) -> dict:
+    """Answer one question, with sources from the named index if there is one.
+
+    Like the app: without an index, or when searching it fails, the model
+    still answers, without sources ("Buiten de bronnen" in the system prompt).
+    """
+    history = history or []
+    config = requests.get(f"{SHELLY_CHAT_URL}/api/config", timeout=10).json()
+    model = llm_model or os.getenv("LLM_MODEL_NAME") or config["llm_model"]
+
+    query, expansions, contexts, searched = question, [], [], False
+    if index is not None and config["embed_model"]:
+        try:
+            query, expansions, contexts = search(question, index_id(index), config)
+            searched = True
+        except (requests.RequestException, KeyError, RuntimeError) as exc:
+            print(f"Zoeken in de index lukte niet ({exc}); antwoord zonder bronnen.", file=sys.stderr)
+    if searched and not contexts and not config["answer_without_sources"]:
         return {"answer": config["no_answer_response"], "contexts": [], "query": query,
-                "expansions": expanded["expansions"], "duration_s": 0.0, "model": model}
+                "expansions": expansions, "duration_s": 0.0, "model": model}
 
     system = config["system_prompt"].replace("{today}", date.today().isoformat())
     messages = [{"role": "system", "content": system}]
@@ -99,16 +112,19 @@ def ask(question: str, index: str, history: list[dict] | None = None, llm_model:
         "answer": "".join(answer),
         "contexts": contexts,
         "query": query,
-        "expansions": expanded["expansions"],
+        "expansions": expansions,
         "duration_s": round(time.perf_counter() - start, 2),
         "model": model,
     }
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        raise SystemExit('Gebruik: python rag.py "Naam van de index" "je vraag"')
-    result = ask(" ".join(sys.argv[2:]), index=sys.argv[1])
+    if len(sys.argv) < 2:
+        raise SystemExit('Gebruik: python rag.py ["Naam van de index"] "je vraag"')
+    if len(sys.argv) == 2:
+        result = ask(sys.argv[1])
+    else:
+        result = ask(" ".join(sys.argv[2:]), index=sys.argv[1])
     print(result["answer"])
     print()
     for c in result["contexts"]:

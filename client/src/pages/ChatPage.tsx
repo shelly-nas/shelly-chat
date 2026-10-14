@@ -73,7 +73,7 @@ export default function ChatPage() {
   const [sourcesFor, setSourcesFor] = useState<string | null>(null);
   const [sourcesDialog, setSourcesDialog] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // An existing conversation's index, fixed since it started (null: deleted).
+  // An existing conversation's index, fixed since it started (null: none, or deleted).
   const [conversationIndexId, setConversationIndexId] = useState<number | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -121,15 +121,17 @@ export default function ChatPage() {
   const update = (msgId: string, patch: Partial<ViewMessage> | ((m: ViewMessage) => Partial<ViewMessage>)) =>
     setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, ...(typeof patch === "function" ? patch(m) : patch) } : m)));
 
-  // A new conversation starts with the index chosen last time, if it still exists.
+  // A new conversation starts with the index chosen last time, if it still
+  // exists. An index is optional: without one the model answers without sources.
   const chosenIndexId =
-    indexes?.find((i) => i.id === settings.lastIndexId)?.id ?? indexes?.[0]?.id ?? null;
+    settings.lastIndexId === "none"
+      ? null
+      : (indexes?.find((i) => i.id === settings.lastIndexId)?.id ?? indexes?.[0]?.id ?? null);
   const indexId = id ? conversationIndexId : chosenIndexId;
   const activeIndex = indexes?.find((i) => i.id === indexId) ?? null;
-  const indexGone = Boolean(id) && !loading && !loadError && conversationIndexId === null;
 
   const send = async (question: string, base: ViewMessage[] = messages) => {
-    if (!question.trim() || busy || !config || indexId === null) return;
+    if (!question.trim() || busy || !config) return;
     const history = base.filter((m) => !m.error && !m.pending && !m.stopped);
     const userId = randomId();
     const answerId = randomId();
@@ -162,6 +164,7 @@ export default function ChatPage() {
           setSourcesFor(answerId);
         },
         onToken: (token) => update(answerId, (m) => ({ content: m.content + token })),
+        onNotice: (notice) => update(answerId, { notice }),
       });
       update(answerId, { pending: false, duration_ms: result.durationMs || null });
 
@@ -239,21 +242,21 @@ export default function ChatPage() {
               {title || <Skeleton width={240} />}
             </Typography>
             <Typography variant="body2" sx={{ mt: 2 }}>
-              Antwoorden van {llmModel || "Ollama"} op je eigen computer, met bronnen uit {activeIndex ? `“${activeIndex.name}”` : "de NAS"}.
+              Antwoorden van {llmModel || "Ollama"} op je eigen computer,{" "}
+              {activeIndex ? `met bronnen uit “${activeIndex.name}”.` : "zonder index: zonder bronnen uit je documenten."}
             </Typography>
           </Box>
           <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
             {!id ? (
-              <FormControl size="small" sx={{ minWidth: 220 }} disabled={!indexes?.length || busy}>
+              <FormControl size="small" sx={{ minWidth: 220 }} disabled={busy}>
                 <InputLabel id="chat-index">Doorzoek index</InputLabel>
                 <Select
                   labelId="chat-index"
-                  value={chosenIndexId ?? ""}
-                  displayEmpty
+                  value={chosenIndexId ?? "none"}
                   sx={{ height: 40, "& .MuiSelect-select": { display: "flex", alignItems: "center", height: "100%", py: 0 } }}
-                  onChange={(e) => updateSettings({ lastIndexId: Number(e.target.value) })}
+                  onChange={(e) => updateSettings({ lastIndexId: e.target.value === "none" ? "none" : Number(e.target.value) })}
                 >
-                  {!indexes?.length && <MenuItem value="">Nog geen indexen</MenuItem>}
+                  <MenuItem value="none">Geen index (zonder bronnen)</MenuItem>
                   {indexes?.map((i) => (
                     <MenuItem key={i.id} value={i.id}>
                       {i.name} ({i.documents})
@@ -265,8 +268,7 @@ export default function ChatPage() {
               !loading && !loadError && (
                 <Chip
                   icon={<SourceOutlinedIcon aria-hidden />}
-                  label={activeIndex ? `Index: ${activeIndex.name}` : "Index verwijderd"}
-                  color={activeIndex ? "default" : "error"}
+                  label={activeIndex ? `Index: ${activeIndex.name}` : "Zonder index"}
                   variant="outlined"
                   sx={{ height: 32 }}
                   title="De index van een gesprek ligt vast zodra het begint."
@@ -308,8 +310,8 @@ export default function ChatPage() {
                 <Box>
                   <Typography variant="h1">Waar kan ik je mee helpen?</Typography>
                   <Typography variant="body1" sx={{ mt: 3, color: "text.secondary" }}>
-                    Stel een vraag over de geïndexeerde documenten. Je computer maakt het antwoord met Ollama;
-                    de NAS zoekt de bronnen en bewaart het gesprek.
+                    Stel een vraag. Je computer maakt het antwoord met Ollama; met een index zoekt de NAS er
+                    bronnen uit je documenten bij. De NAS bewaart het gesprek.
                   </Typography>
                 </Box>
                 <Readiness index={activeIndex} />
@@ -332,15 +334,6 @@ export default function ChatPage() {
 
         {/* Composer */}
         <Box sx={{ px: { xs: 6, md: 8 }, pb: { xs: 4, md: 6 }, pt: 2 }}>
-          {indexGone && (
-            <Alert
-              severity="warning"
-              sx={{ maxWidth: 760, mx: "auto", mb: 3 }}
-              action={<Button size="small" variant="text" onClick={() => navigate("/")}>Nieuw gesprek</Button>}
-            >
-              De index van dit gesprek is verwijderd. Je kunt het nog lezen, maar geen vragen meer stellen.
-            </Alert>
-          )}
           <Box
             component="form"
             onSubmit={(e) => {
@@ -358,11 +351,11 @@ export default function ChatPage() {
                   send(input);
                 }
               }}
-              placeholder="Stel een vraag over je documenten…"
+              placeholder={activeIndex ? "Stel een vraag over je documenten…" : "Stel een vraag…"}
               multiline
               maxRows={6}
               fullWidth
-              disabled={!config || indexId === null}
+              disabled={!config}
               inputProps={{ "aria-label": "Je vraag", maxLength: config?.query_max_length }}
             />
             {busy ? (
@@ -370,7 +363,7 @@ export default function ChatPage() {
                 Stoppen
               </Button>
             ) : (
-              <Button type="submit" variant="contained" disabled={!input.trim() || !config || indexId === null} sx={{ flexShrink: 0 }}>
+              <Button type="submit" variant="contained" disabled={!input.trim() || !config} sx={{ flexShrink: 0 }}>
                 Versturen
               </Button>
             )}

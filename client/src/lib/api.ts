@@ -70,7 +70,7 @@ export const api = {
       (r) => r.conversations,
     ),
   conversation: (id: string) => request<Conversation>(`/api/conversations/${id}`),
-  createConversation: (indexId: number, messages: Omit<ChatMessage, "id">[]) =>
+  createConversation: (indexId: number | null, messages: Omit<ChatMessage, "id">[]) =>
     request<Conversation>("/api/conversations", {
       method: "POST",
       body: JSON.stringify({ index_id: indexId, messages }),

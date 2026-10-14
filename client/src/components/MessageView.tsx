@@ -10,6 +10,8 @@ export interface ViewMessage extends ChatMessage {
   pending?: boolean;
   stopped?: boolean;
   error?: { title: string; detail: string; ollama: boolean };
+  /** Why this answer has no sources although the conversation has an index. */
+  notice?: string;
 }
 
 interface Props {
@@ -77,6 +79,11 @@ export default function MessageView({ message, stage, sourcesSelected, onShowSou
   const sources = message.sources ?? [];
   return (
     <Box>
+      {message.notice && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          {message.notice}
+        </Alert>
+      )}
       {message.pending && !message.content ? (
         <Stack direction="row" spacing={3} alignItems="center" sx={{ py: 2 }} role="status">
           <CircularProgress size={16} thickness={5} />

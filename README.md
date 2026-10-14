@@ -54,8 +54,12 @@ index heeft:
   worden alleen op de NAS bewaard; er komt geen `.gitignore`-bestand in de documentenmap.
 
 Bij een **nieuw gesprek** kies je bovenaan welke index het doorzoekt. Die keuze geldt voor alle vragen
-in dat gesprek en ligt vast zodra het gesprek begonnen is. Verwijder je een index, dan blijven de
-gesprekken leesbaar maar kun je er geen vragen meer in stellen.
+in dat gesprek en ligt vast zodra het gesprek begonnen is.
+
+Een index is handig, maar niet nodig. Kies je **Geen index**, is de index leeg, of lukt het zoeken niet
+(bijvoorbeeld omdat het embeddingmodel ontbreekt of de NAS niet antwoordt), dan antwoordt het taalmodel
+toch, zonder bronnen. Bij een mislukte zoekopdracht staat boven het antwoord waarom. Verwijder je een
+index, dan gaan de gesprekken ervan zonder index verder.
 
 Het embeddingmodel en de chunkgroottes gelden voor alle indexen samen. Een document dat in meerdere
 indexen zit, wordt één keer geëmbed en opgeslagen.

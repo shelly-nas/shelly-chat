@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/conversations")
 
 TITLE_MAX_LENGTH = 80
 
-# The index is part of every conversation; index_name is NULL once it is deleted.
+# The index a conversation searches; NULL without one (chosen so, or deleted since).
 _COLUMNS = "c.id, c.title, c.index_id, i.name AS index_name, c.created_at, c.updated_at"
 
 
@@ -48,7 +48,8 @@ class NewMessage(BaseModel):
 class CreateConversation(BaseModel):
     title: str | None = None
     # Chosen when the conversation starts; it can not be changed afterwards.
-    index_id: int
+    # None: no index, the model answers without sources.
+    index_id: int | None = None
     messages: list[NewMessage] = Field(default_factory=list)
 
 
@@ -82,7 +83,9 @@ def create_conversation(request: CreateConversation):
     first_user = next((m.content for m in request.messages if m.role == "user"), "")
     title = _title_from(request.title or first_user)
     with db.connection() as conn:
-        if not conn.execute("SELECT 1 FROM indexes WHERE id = %s", (request.index_id,)).fetchone():
+        if request.index_id is not None and not conn.execute(
+            "SELECT 1 FROM indexes WHERE id = %s", (request.index_id,)
+        ).fetchone():
             raise HTTPException(status_code=422, detail="Deze index bestaat niet (meer).")
         created = conn.execute(
             "INSERT INTO conversations (title, index_id) VALUES (%s, %s) RETURNING id",
