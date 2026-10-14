@@ -139,6 +139,15 @@ export const api = {
     request<void>(`/api/indexes/${indexId}/sources/${sourceId}`, { method: "DELETE", headers: bearer(token) }),
   indexFiles: (token: string, indexId: number) =>
     request<{ files: string[]; missing: string[] }>(`/api/indexes/${indexId}/files`, { headers: bearer(token) }),
+  /** Take or renew the one-run-at-a-time lock on the NAS; 409 while another run has it. */
+  leaseRun: (token: string, runId: string, label: string) =>
+    request<{ run: { id: string; label: string; started_at: string } }>("/api/index/run", {
+      method: "PUT",
+      headers: bearer(token),
+      body: JSON.stringify({ run_id: runId, label }),
+    }),
+  endRun: (token: string, runId: string) =>
+    request<void>(`/api/index/run/${encodeURIComponent(runId)}`, { method: "DELETE", headers: bearer(token) }),
   pruneIndex: (token: string, indexId: number, keep: string[]) =>
     request<{ removed: number; deleted_documents: number }>(`/api/indexes/${indexId}/prune`, {
       method: "POST",

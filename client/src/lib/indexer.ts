@@ -15,6 +15,7 @@
 //
 // host/indexing/indexer.py is the same run for the command line.
 import { api } from "./api";
+import { randomId } from "./id";
 import { embedMany, unload } from "./ollama";
 import type { ChunkConfig, IndexSettings } from "./types";
 
@@ -135,10 +136,23 @@ async function indexOne(o: RunOptions, indexId: number, name: string, counts: Ru
   report(null, files.length);
 }
 
-/** Index one or more indexes after each other; `full` empties the store once, first. */
+/** How often a run renews its lock on the NAS; the NAS lets it go after 3 minutes without. */
+const LEASE_RENEW_MS = 30_000;
+
+/**
+ * Index one or more indexes after each other; `full` empties the store once, first.
+ * Only one run at a time, across tabs, computers and the CLI: the run holds a
+ * lock on the NAS (PUT /api/index/run) and fails up front while another has it.
+ */
 export async function runIndexes(o: RunOptions, indexes: { id: number; name: string }[]): Promise<RunCounts> {
   const counts = emptyCounts();
   if (indexes.length === 0) throw new Error("Er is geen index om te indexeren.");
+  const runId = randomId();
+  const label = indexes.map((i) => i.name).join(", ");
+  await api.leaseRun(o.indexToken, runId, label);
+  const renew = setInterval(() => {
+    api.leaseRun(o.indexToken, runId, label).catch((err) => o.log("warning", `Slot op de NAS verlengen mislukt: ${(err as Error).message}`));
+  }, LEASE_RENEW_MS);
   try {
     await prepareStore(o);
     for (const index of indexes) {
@@ -146,6 +160,8 @@ export async function runIndexes(o: RunOptions, indexes: { id: number; name: str
       await indexOne(o, index.id, index.name, counts);
     }
   } finally {
+    clearInterval(renew);
+    api.endRun(o.indexToken, runId).catch(() => {});
     unload(o.ollamaUrl, o.embedModel).catch(() => {});
   }
   return counts;

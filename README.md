@@ -77,7 +77,13 @@ indexen zit, wordt één keer geëmbed en opgeslagen.
 Ongewijzigde documenten worden overgeslagen. Een ander embeddingmodel of andere chunkgroottes leegt
 alle indexen en bouwt ze opnieuw op. Documenten die uit de bronnen verdwenen zijn (of nu genegeerd
 worden), gaan uit de index, maar alleen als elke bron gelezen kon worden. Een map die (even) ontbreekt,
-leegt de index dus nooit. Het index-token staat alleen in je browser, nooit op de NAS. Voor scripts of
+leegt de index dus nooit. Het index-token staat alleen in je browser, nooit op de NAS.
+
+Een indexering loopt door als je naar de chat of de instellingen gaat; de voortgang staat dan in de zijbalk.
+Het tabblad moet wel open blijven, want het embedden gebeurt in je browser. Er draait altijd maar één
+indexering tegelijk: de NAS houdt een slot bij (`/api/index/run`), ook tegen een tweede tabblad, een andere
+computer of de CLI. Een run die stopt zonder het slot vrij te geven (een gesloten tabblad), verliest het na
+drie minuten. Voor scripts of
 een geplande taak doet de CLI in [host/](host/README.md) precies hetzelfde.
 
 ### Instellingen

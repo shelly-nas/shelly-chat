@@ -22,6 +22,8 @@ machine with Ollama; the documents themselves stay on the NAS:
 """
 
 import os
+import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -138,27 +140,51 @@ def run_pipeline(config: IndexingConfig, full_reindex: bool = False, only: Optio
     if not indexes:
         raise SystemExit("Er zijn nog geen indexen. Maak ze op het scherm Indexen in de app.")
 
-    # 1. Model, dimension and whether to start over (shared by all indexes)
-    meta = settings["meta"]
-    if meta and meta["embed_model"] == config.embed_model:
-        dimensions = meta["embed_dimensions"]
-    else:
-        log_info(f"Embeddingmodel {config.embed_model} laden om de dimensie te bepalen ...")
-        dimensions = embedder.dimensions()
-    reason = reset_reason(meta, settings["chunk_config"], config.embed_model, dimensions)
-    if reason:
-        log_warn(f"Alle indexen worden opnieuw opgebouwd: {reason}.")
-    nas.put_meta({"embed_model": config.embed_model, "embed_dimensions": dimensions}, reset=full_reindex or reason is not None)
-
-    # 2-3. Each index
+    # One run at a time, also against the app (see server/app/runlock.py).
+    run_id = uuid.uuid4().hex
+    label = "CLI: " + ", ".join(i["name"] for i in indexes)
     try:
-        for index in indexes:
-            index_one(index, nas, embedder, counts)
-    finally:
+        nas.lease_run(run_id, label)
+    except NasError as exc:
+        raise SystemExit(str(exc)) from None
+    stop = threading.Event()
+
+    def keep_lease() -> None:
+        while not stop.wait(30):
+            try:
+                nas.lease_run(run_id, label)
+            except NasError as exc:
+                log_warn(f"Slot op de NAS verlengen mislukt — {exc}")
+
+    threading.Thread(target=keep_lease, daemon=True).start()
+    try:
+        # 1. Model, dimension and whether to start over (shared by all indexes)
+        meta = settings["meta"]
+        if meta and meta["embed_model"] == config.embed_model:
+            dimensions = meta["embed_dimensions"]
+        else:
+            log_info(f"Embeddingmodel {config.embed_model} laden om de dimensie te bepalen ...")
+            dimensions = embedder.dimensions()
+        reason = reset_reason(meta, settings["chunk_config"], config.embed_model, dimensions)
+        if reason:
+            log_warn(f"Alle indexen worden opnieuw opgebouwd: {reason}.")
+        nas.put_meta({"embed_model": config.embed_model, "embed_dimensions": dimensions}, reset=full_reindex or reason is not None)
+
+        # 2-3. Each index
         try:
-            embedder.unload()
-        except Exception as exc:
-            log_warn(f"Model ontladen mislukt — {exc}")
+            for index in indexes:
+                index_one(index, nas, embedder, counts)
+        finally:
+            try:
+                embedder.unload()
+            except Exception as exc:
+                log_warn(f"Model ontladen mislukt — {exc}")
+    finally:
+        stop.set()
+        try:
+            nas.end_run(run_id)
+        except NasError:
+            pass
 
     log_success(
         f"Klaar: {counts['new']} nieuw, {counts['changed']} gewijzigd, {counts['unchanged']} ongewijzigd, "

@@ -62,6 +62,9 @@ documenten in de bronnen op, na de ignore-patronen) → `POST /api/index/prepare
 ongewijzigd komt direct in de index en stopt hier) → Ollama `/api/embed` voor de leaves → `PUT /api/index/documents`
 → `POST /api/indexes/{id}/prune` (alleen als elke bron gelezen kon worden).
 `host/indexing/indexer.py` is dezelfde run als CLI. Wijzig je de regels (reset, verwijderen), doe dat dan in beide.
+Er draait één run tegelijk: beide nemen eerst het slot `PUT /api/index/run` (`server/app/runlock.py`, in het geheugen,
+lease van 3 minuten) en verlengen het elke 30 s. In de app hoort de run bij de hele app (`client/src/indexRun.tsx`),
+niet bij een scherm.
 
 Gedeelde instellingen (systeemprompt, generatie, zoeken, embeddingmodel, chunkgroottes, maximale bestandsgrootte) staan in
 `app_settings` (`server/app/settings.py`, `GET/PUT /api/settings`, wijzigen met het token). Zonder rij geldt de

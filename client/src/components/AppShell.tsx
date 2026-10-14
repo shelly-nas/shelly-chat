@@ -20,6 +20,7 @@ import {
   DialogTitle,
   Drawer,
   IconButton,
+  LinearProgress,
   List,
   ListItemButton,
   ListItemText,
@@ -35,6 +36,7 @@ import { useState, type ReactNode } from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../appState";
+import { useIndexRun } from "../indexRun";
 import { useColorMode } from "../colorMode";
 import { api } from "../lib/api";
 import type { ConversationSummary } from "../lib/types";
@@ -174,6 +176,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
     onNavigate();
   };
   const { indexes } = useAppState();
+  const run = useIndexRun();
 
   return (
     <Box
@@ -222,12 +225,27 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         >
           <SourceOutlinedIcon fontSize="small" aria-hidden />
           <ListItemText primary="Indexen" primaryTypographyProps={{ fontSize: 14, fontWeight: "inherit", color: "inherit" }} />
-          {indexes && (
+          {indexes && !run.running && (
             <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
               {indexes.length}
             </Typography>
           )}
         </ListItemButton>
+        {run.running && (
+          // The run goes on while you are elsewhere in the app: show where it is.
+          <Box role="status" sx={{ px: 3, pb: 2 }}>
+            <Typography variant="caption" component="p" noWrap sx={{ color: "text.secondary", mb: 1 }}>
+              Indexeren{run.label ? ` ${run.label}` : ""}
+              {run.progress?.total ? ` · ${run.progress.done}/${run.progress.total}` : "…"}
+            </Typography>
+            <LinearProgress
+              variant={run.progress?.total ? "determinate" : "indeterminate"}
+              value={run.progress?.total ? (run.progress.done / run.progress.total) * 100 : 0}
+              sx={{ height: 4, borderRadius: 2 }}
+              aria-label="Voortgang van het indexeren"
+            />
+          </Box>
+        )}
         <OllamaStatus onClick={openSettings} />
         <Stack direction="row" alignItems="center" spacing={1}>
           <ListItemButton selected={onSettings} onClick={openSettings} sx={{ flex: 1 }}>

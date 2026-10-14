@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from app import abbreviations, config, db, documents, files, settings
+from app import abbreviations, config, db, documents, files, runlock, settings
 
 router = APIRouter(prefix="/api/index")
 
@@ -84,6 +84,38 @@ def browse(path: str = ""):
         return files.browse(path)
     except files.PathError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/run")
+def current_run():
+    """The indexing run in progress, if any (see app/runlock.py)."""
+    run = runlock.current()
+    return {"run": run.public() if run else None}
+
+
+class RunLease(BaseModel):
+    run_id: str = Field(min_length=8, max_length=100)
+    # What runs, shown to whoever else tries to start one.
+    label: str = Field(default="", max_length=200)
+
+
+@router.put("/run", dependencies=[Depends(require_token)])
+def lease_run(request: RunLease):
+    """Start a run, or renew the lease of the run that has it; 409 while another runs."""
+    try:
+        run = runlock.acquire(request.run_id, request.label or "indexering")
+    except runlock.Busy as busy:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Er loopt al een indexering ({busy.run.label}). Wacht tot die klaar is.",
+        )
+    return {"run": run.public()}
+
+
+@router.delete("/run/{run_id}", status_code=204, dependencies=[Depends(require_token)])
+def end_run(run_id: str):
+    runlock.release(run_id)
+    return Response(status_code=204)
 
 
 @router.get("/auth", dependencies=[Depends(require_token)])

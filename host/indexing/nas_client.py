@@ -31,6 +31,13 @@ class NasClient:
             raise NasError(f"{method} {path} gaf {resp.status_code}: {detail}")
         return resp.json() if resp.content else None
 
+    def lease_run(self, run_id: str, label: str) -> dict:
+        """Take or renew the one-run-at-a-time lock; NasError (409) while another run has it."""
+        return self._request("PUT", "/api/index/run", json={"run_id": run_id, "label": label})
+
+    def end_run(self, run_id: str) -> None:
+        self._request("DELETE", f"/api/index/run/{run_id}")
+
     def status(self) -> dict:
         return self._request("GET", "/api/index")
 

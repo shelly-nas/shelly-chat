@@ -338,3 +338,23 @@ def test_serves_only_indexed_documents(client):
     assert client.get("/api/files/..%2F..%2Fetc%2Fpasswd").status_code == 404
     client.delete(f"/api/indexes/{index['id']}", headers=AUTH)
     assert client.get("/api/files/los.md").status_code == 404
+
+
+def test_one_indexing_run_at_a_time(client, monkeypatch):
+    from app import runlock
+
+    assert client.put("/api/index/run", json={"run_id": "tab-one-123", "label": "Mijn BV"}).status_code == 401
+    assert client.put("/api/index/run", json={"run_id": "tab-one-123", "label": "Mijn BV"}, headers=AUTH).status_code == 200
+    assert client.get("/api/index/run").json()["run"]["label"] == "Mijn BV"
+    # Renewing is fine; another run is refused, and told which one is busy.
+    assert client.put("/api/index/run", json={"run_id": "tab-one-123", "label": "Mijn BV"}, headers=AUTH).status_code == 200
+    busy = client.put("/api/index/run", json={"run_id": "cli-run-456", "label": "CLI"}, headers=AUTH)
+    assert busy.status_code == 409 and "Mijn BV" in busy.json()["detail"]
+
+    # A run that stops renewing (a closed tab) loses the lock.
+    monkeypatch.setattr(runlock, "LEASE_SECONDS", -1)
+    assert client.get("/api/index/run").json()["run"] is None
+    monkeypatch.setattr(runlock, "LEASE_SECONDS", 180)
+    assert client.put("/api/index/run", json={"run_id": "cli-run-456", "label": "CLI"}, headers=AUTH).status_code == 200
+    assert client.delete("/api/index/run/cli-run-456", headers=AUTH).status_code == 204
+    assert client.get("/api/index/run").json()["run"] is None
