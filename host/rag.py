@@ -96,18 +96,22 @@ def ask(question: str, index: str | None = None, history: list[dict] | None = No
     messages.append({"role": "user", "content": build_qa_prompt(contexts, query)})
 
     start = time.perf_counter()
-    answer = []
+    answer, stats = [], {}
     with requests.post(
         f"{OLLAMA_BASE_URL}/api/chat",
         json={"model": model, "messages": messages, "stream": True,
-              "options": config["llm_options"], "think": LLM_THINK, "keep_alive": 0},
+              # Like the app: the model stays loaded for the next question.
+              "options": config["llm_options"], "think": LLM_THINK, "keep_alive": "10m"},
         stream=True,
         timeout=600,
     ) as stream:
         stream.raise_for_status()
         for line in stream.iter_lines():
             if line:
-                answer.append(json.loads(line).get("message", {}).get("content", ""))
+                chunk = json.loads(line)
+                answer.append(chunk.get("message", {}).get("content", ""))
+                if chunk.get("done"):
+                    stats = chunk
     return {
         "answer": "".join(answer),
         "contexts": contexts,
@@ -115,6 +119,14 @@ def ask(question: str, index: str | None = None, history: list[dict] | None = No
         "expansions": expansions,
         "duration_s": round(time.perf_counter() - start, 2),
         "model": model,
+        # Seconds and tokens as Ollama reports them, like the timings in the app.
+        "timings": {
+            "load_s": round(stats.get("load_duration", 0) / 1e9, 2),
+            "prompt_tokens": stats.get("prompt_eval_count", 0),
+            "prompt_s": round(stats.get("prompt_eval_duration", 0) / 1e9, 2),
+            "output_tokens": stats.get("eval_count", 0),
+            "output_s": round(stats.get("eval_duration", 0) / 1e9, 2),
+        },
     }
 
 

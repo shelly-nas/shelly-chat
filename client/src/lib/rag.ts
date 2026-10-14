@@ -7,8 +7,8 @@
 //
 // host/rag.py is the same pipeline in Python, for the evaluation.
 import { api } from "./api";
-import { chatStream, embed, type ChatTurn } from "./ollama";
-import type { ChatMessage, ExpansionSource, ServerConfig, SourceContext } from "./types";
+import { chatStream, embed, type ChatStats, type ChatTurn } from "./ollama";
+import type { ChatMessage, ExpansionSource, MessageTimings, ServerConfig, SourceContext } from "./types";
 
 export type Stage = "expanding" | "embedding" | "retrieving" | "generating";
 
@@ -79,6 +79,7 @@ export interface AskResult {
   sources: SourceContext[];
   answer: string;
   durationMs: number;
+  timings: MessageTimings;
 }
 
 /** Search the index: expand, embed, retrieve. Throws when any step is unavailable. */
@@ -104,6 +105,7 @@ export async function ask(o: AskOptions): Promise<AskResult> {
   let expansions: ExpansionSource[] = [];
   let contexts: SourceContext[] = [];
   let searched = false;
+  const searchStart = performance.now();
   if (o.indexId !== null) {
     if (!o.config.embed_model) {
       o.onNotice?.("Er is nog niets geïndexeerd, dus dit antwoord komt zonder bronnen.");
@@ -121,6 +123,7 @@ export async function ask(o: AskOptions): Promise<AskResult> {
     }
   }
   o.onSources(contexts);
+  const timings: MessageTimings = o.indexId !== null ? { search_ms: Math.round(performance.now() - searchStart) } : {};
 
   // Nothing relevant found: unless the model may answer from general knowledge
   // (marked as such by the system prompt), give the fixed no-answer text.
@@ -132,6 +135,7 @@ export async function ask(o: AskOptions): Promise<AskResult> {
       sources: [],
       answer: o.config.no_answer_response,
       durationMs: 0,
+      timings,
     };
   }
 
@@ -139,11 +143,14 @@ export async function ask(o: AskOptions): Promise<AskResult> {
   const start = performance.now();
   let answer = "";
   const messages = buildMessages(o.config, o.history, contexts, query);
+  let stats: ChatStats | null = null;
+  // The language model stays loaded between questions (LLM_KEEP_ALIVE); only
+  // the embedding model is unloaded right away when unloadModels is on.
   for await (const token of chatStream(o.ollamaUrl, o.llmModel, messages, {
     options: o.config.llm_options,
-    unload: o.unloadModels,
     think: o.think,
     signal: o.signal,
+    onStats: (s) => (stats = s),
   })) {
     answer += token;
     o.onToken(token);
@@ -154,5 +161,18 @@ export async function ask(o: AskOptions): Promise<AskResult> {
     sources: contexts,
     answer,
     durationMs: Math.round(performance.now() - start),
+    timings: withStats(timings, stats),
+  };
+}
+
+function withStats(timings: MessageTimings, stats: ChatStats | null): MessageTimings {
+  if (!stats) return timings;
+  return {
+    ...timings,
+    load_ms: stats.loadMs,
+    prompt_tokens: stats.promptTokens,
+    prompt_ms: stats.promptMs,
+    output_tokens: stats.outputTokens,
+    output_ms: stats.outputMs,
   };
 }

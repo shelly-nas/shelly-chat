@@ -219,7 +219,8 @@ def test_conversations_keep_their_index(client):
         "/api/conversations",
         json={"index_id": idx["id"], "messages": [
             {"role": "user", "content": "Wat is BRP?", "effective_query": "Wat is BRP (Basisregistratie Personen)?"},
-            {"role": "assistant", "content": "De bron.", "sources": [{"source_num": 1}], "model": "m", "duration_ms": 5},
+            {"role": "assistant", "content": "De bron.", "sources": [{"source_num": 1}], "model": "m", "duration_ms": 5,
+             "timings": {"search_ms": 800, "load_ms": 0, "prompt_tokens": 1200, "prompt_ms": 400}},
         ]},
     )
     assert r.status_code == 201, r.text
@@ -231,6 +232,7 @@ def test_conversations_keep_their_index(client):
     assert client.post(f"/api/conversations/{cid}/messages", json={"messages": [{"role": "user", "content": "En nu?"}]}).status_code == 201
     full = client.get(f"/api/conversations/{cid}").json()
     assert [m["role"] for m in full["messages"]] == ["user", "assistant", "user"]
+    assert full["messages"][1]["timings"]["prompt_tokens"] == 1200 and full["messages"][2]["timings"] is None
     assert client.patch(f"/api/conversations/{cid}", json={"title": "BRP"}).json()["index_name"] == "Gesprekken"
 
     # Deleting the index keeps the conversation readable, without an index.

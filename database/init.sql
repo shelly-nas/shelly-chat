@@ -135,6 +135,9 @@ CREATE TABLE IF NOT EXISTS messages (
     sources         jsonb       NOT NULL DEFAULT '[]',
     model           text,
     duration_ms     integer,
+    -- Assistant messages: where the time went (search, model load, reading the
+    -- prompt, writing), as measured by the browser and reported by Ollama.
+    timings         jsonb,
     created_at      timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX IF NOT EXISTS messages_conversation_id_idx ON messages (conversation_id, created_at);

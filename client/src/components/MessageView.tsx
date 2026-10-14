@@ -2,6 +2,7 @@ import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
 import { Alert, AlertTitle, Box, Button, Chip, CircularProgress, Stack, Typography } from "@mui/material";
 
 import { STAGE_LABEL, type Stage } from "../lib/rag";
+import { describeTimings, formatDuration } from "../lib/timings";
 import type { ChatMessage } from "../lib/types";
 import ExpansionNote from "./ExpansionNote";
 import Markdown from "./Markdown";
@@ -21,10 +22,6 @@ interface Props {
   onShowSources: () => void;
   onRetry: () => void;
   onHelp: () => void;
-}
-
-function formatDuration(ms: number): string {
-  return ms < 10_000 ? `${(ms / 1000).toFixed(1).replace(".", ",")} s` : `${Math.round(ms / 1000)} s`;
 }
 
 export default function MessageView({ message, stage, sourcesSelected, onShowSources, onRetry, onHelp }: Props) {
@@ -113,6 +110,12 @@ export default function MessageView({ message, stage, sourcesSelected, onShowSou
           )}
           {message.stopped && <Typography variant="caption">Gestopt, niet opgeslagen</Typography>}
         </Stack>
+      )}
+      {!message.pending && message.timings && describeTimings(message.timings) && (
+        // Where the time went, so a slow answer says why.
+        <Typography variant="caption" component="p" sx={{ mt: 1, fontVariantNumeric: "tabular-nums" }}>
+          {describeTimings(message.timings)}
+        </Typography>
       )}
       {!message.pending && sources.length > 0 && (
         <Typography variant="caption" component="p" sx={{ mt: 2 }}>

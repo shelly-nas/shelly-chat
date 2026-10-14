@@ -169,6 +169,31 @@ toe: zo bereikt de pagina Ollama op je eigen computer. Draait Ollama op een ande
 netwerk, vul dan het adres daarvan in onder **Instellingen**. Die machine moet dan met
 `OLLAMA_HOST=0.0.0.0` luisteren.
 
+### Sneller antwoorden
+
+Twee instellingen van Ollama maken het inlezen van lange prompts (vraag, gesprek en bronnen) sneller en
+zuiniger met geheugen. Zet ze op dezelfde manier als `OLLAMA_ORIGINS` en start Ollama daarna opnieuw:
+
+```bash
+# macOS
+launchctl setenv OLLAMA_FLASH_ATTENTION 1
+launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0
+
+# Linux (systemd): in `sudo systemctl edit ollama`
+#   Environment="OLLAMA_FLASH_ATTENTION=1"
+#   Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
+
+# Windows
+setx OLLAMA_FLASH_ATTENTION 1
+setx OLLAMA_KV_CACHE_TYPE q8_0
+```
+
+Verder helpt een kleiner of sterker gequantiseerd chatmodel (bijvoorbeeld `gemma4:e4b` of `qwen3:8b`), en
+minder bronnen per vraag of een kleiner contextvenster onder **Instellingen → Antwoorden**. Onder elk antwoord
+staat waar de tijd in ging: zoeken, model laden, de prompt inlezen (met het aantal tokens) en schrijven
+(tokens per seconde). Het taalmodel blijft na een antwoord 10 minuten geladen, zodat een vervolgvraag
+direct begint; alleen het embeddingmodel wordt meteen ontladen.
+
 ## Lokaal draaien
 
 ```bash

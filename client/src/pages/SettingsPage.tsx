@@ -320,8 +320,8 @@ function BrowserSection() {
         onChange={(v) => updateSettings({ disableThinking: v })}
       />
       <SwitchRow
-        title="Modellen direct ontladen"
-        description="Geeft het geheugen na elke stap vrij, zodat embeddingmodel en taalmodel niet tegelijk geladen zijn. Uitzetten maakt vervolgvragen sneller als je genoeg (V)RAM hebt."
+        title="Embeddingmodel direct ontladen"
+        description="Geeft het geheugen van het embeddingmodel vrij zodra je vraag is omgezet. Het taalmodel blijft na een antwoord 10 minuten geladen, zodat een volgende vraag direct begint. Uitzetten scheelt nog iets als je genoeg (V)RAM hebt."
         checked={settings.unloadModels}
         onChange={(v) => updateSettings({ unloadModels: v })}
       />
@@ -331,6 +331,24 @@ function BrowserSection() {
         checked={settings.expandQuery}
         onChange={(v) => updateSettings({ expandQuery: v })}
       />
+
+      <Alert severity="info" icon={false}>
+        <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary" }}>Sneller antwoorden</Typography>
+        <Typography variant="body2" sx={{ mt: 1, color: "text.primary" }}>
+          Zet in Ollama op deze computer flash attention en een kleinere cache aan, en start Ollama daarna opnieuw. Op
+          macOS:
+        </Typography>
+        <Box
+          component="pre"
+          sx={{ m: 0, mt: 2, p: 3, borderRadius: 2, bgcolor: "background.paper", fontSize: 13, overflowX: "auto", fontFamily: "ui-monospace, Menlo, monospace" }}
+        >
+          {"launchctl setenv OLLAMA_FLASH_ATTENTION 1\nlaunchctl setenv OLLAMA_KV_CACHE_TYPE q8_0"}
+        </Box>
+        <Typography variant="body2" sx={{ mt: 2, color: "text.primary" }}>
+          Onder elk antwoord staat waar de tijd in ging. Duurt het inlezen lang, kies dan minder bronnen per vraag of een
+          kleiner contextvenster onder Antwoorden; is het schrijven traag, kies dan een kleiner taalmodel.
+        </Typography>
+      </Alert>
 
       <Box>
         <Typography sx={{ fontSize: 14, fontWeight: 600, color: "text.primary", mb: 1 }}>Index-token</Typography>

@@ -6,7 +6,7 @@ export interface Settings {
   ollamaUrl: string;
   /** Empty: the server's LLM_MODEL_NAME. */
   llmModel: string;
-  /** Unload each model right after use, so embedder and LLM never compete for memory. */
+  /** Unload the embedding model right after embedding the question; the LLM stays loaded (LLM_KEEP_ALIVE). */
   unloadModels: boolean;
   expandQuery: boolean;
   /** Ask the model not to think first (Ollama's think: false), like /no_think did. */

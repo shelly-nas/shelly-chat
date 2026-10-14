@@ -43,6 +43,7 @@ class NewMessage(BaseModel):
     sources: list[dict] = Field(default_factory=list)
     model: str | None = None
     duration_ms: int | None = None
+    timings: dict | None = None
 
 
 class CreateConversation(BaseModel):
@@ -59,10 +60,10 @@ def _insert_messages(conn, conversation_id: uuid.UUID, messages: list[NewMessage
         inserted.append(
             conn.execute(
                 "INSERT INTO messages (conversation_id, role, content, effective_query,"
-                " expansions, sources, model, duration_ms)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                " expansions, sources, model, duration_ms, timings)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
                 " RETURNING id, role, content, effective_query, expansions, sources,"
-                " model, duration_ms, created_at",
+                " model, duration_ms, timings, created_at",
                 (
                     conversation_id,
                     m.role,
@@ -72,6 +73,7 @@ def _insert_messages(conn, conversation_id: uuid.UUID, messages: list[NewMessage
                     Jsonb(m.sources),
                     m.model,
                     m.duration_ms,
+                    Jsonb(m.timings) if m.timings is not None else None,
                 ),
             ).fetchone()
         )
@@ -112,7 +114,7 @@ def get_conversation(conversation_id: uuid.UUID):
         conversation = _get(conn, conversation_id)
         messages = conn.execute(
             "SELECT id, role, content, effective_query, expansions, sources, model,"
-            " duration_ms, created_at FROM messages"
+            " duration_ms, timings, created_at FROM messages"
             " WHERE conversation_id = %s ORDER BY created_at, id",
             (conversation_id,),
         ).fetchall()

@@ -166,7 +166,7 @@ export default function ChatPage() {
         onToken: (token) => update(answerId, (m) => ({ content: m.content + token })),
         onNotice: (notice) => update(answerId, { notice }),
       });
-      update(answerId, { pending: false, duration_ms: result.durationMs || null });
+      update(answerId, { pending: false, duration_ms: result.durationMs || null, timings: result.timings });
 
       const toSave = [
         { role: "user" as const, content: question, effective_query: result.effectiveQuery, expansions: result.expansions },
@@ -176,6 +176,7 @@ export default function ChatPage() {
           sources: result.sources,
           model: llmModel,
           duration_ms: result.durationMs || null,
+          timings: result.timings,
         },
       ];
       try {

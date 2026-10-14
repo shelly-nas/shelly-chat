@@ -49,6 +49,9 @@ van de gebruiker, en de browser praat daar zelf mee.
 Vraagflow: `POST /api/expand` → Ollama `/api/embed` (model van de index, `GET /api/config`) →
 `POST /api/retrieve` → Ollama `/api/chat` (streaming NDJSON) → `POST /api/conversations`.
 `host/rag.py` is dezelfde flow in Python. Wijzig je de prompt of de stappen, doe dat dan in beide.
+Het taalmodel blijft na een antwoord geladen (`keep_alive` 10m, `LLM_KEEP_ALIVE` in `ollama.ts`); alleen het
+embeddingmodel wordt direct ontladen. Elk antwoord bewaart waar de tijd in ging (`messages.timings`: zoeken,
+model laden, prompt inlezen, schrijven, uit Ollama's eindstatistieken).
 
 Er zijn meerdere benoemde indexen (`indexes`, met `index_sources` en gitignore-achtige `ignore_patterns`, beheerd via
 `/api/indexes/*`). Documenten en chunks zijn gedeeld; `index_documents` zegt welk document in welke index zit, en een

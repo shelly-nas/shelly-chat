@@ -28,7 +28,22 @@ export interface ChatMessage {
   sources?: SourceContext[];
   model?: string | null;
   duration_ms?: number | null;
+  timings?: MessageTimings | null;
   created_at?: string;
+}
+
+/** Where the time of one answer went, in milliseconds (and tokens, from Ollama). */
+export interface MessageTimings {
+  /** Abbreviations, embedding the question and searching on the NAS. */
+  search_ms?: number;
+  /** Ollama loading the language model; 0 when it was still loaded. */
+  load_ms?: number;
+  /** Reading the prompt: system prompt, history, sources and question. */
+  prompt_tokens?: number;
+  prompt_ms?: number;
+  /** Writing the answer. */
+  output_tokens?: number;
+  output_ms?: number;
 }
 
 export interface ConversationSummary {

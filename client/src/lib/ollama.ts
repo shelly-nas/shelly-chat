@@ -126,11 +126,27 @@ export async function* readNdjson(body: ReadableStream<Uint8Array>): AsyncGenera
   if (buffer.trim()) yield JSON.parse(buffer);
 }
 
+/** What Ollama reports at the end of an answer, in milliseconds and tokens. */
+export interface ChatStats {
+  loadMs: number;
+  promptTokens: number;
+  promptMs: number;
+  outputTokens: number;
+  outputMs: number;
+}
+
+/**
+ * How long the language model stays loaded after an answer. Reloading it costs
+ * seconds per question, and the cached prompt goes with it; a follow-up
+ * question within this time starts right away.
+ */
+export const LLM_KEEP_ALIVE = "10m";
+
 export async function* chatStream(
   ollamaUrl: string,
   model: string,
   messages: ChatTurn[],
-  opts: { options?: Record<string, number>; unload: boolean; think?: boolean; signal?: AbortSignal },
+  opts: { options?: Record<string, number>; think?: boolean; signal?: AbortSignal; onStats?: (s: ChatStats) => void },
 ): AsyncGenerator<string> {
   const res = await call(`${base(ollamaUrl)}/api/chat`, {
     method: "POST",
@@ -143,7 +159,7 @@ export async function* chatStream(
       // false switches thinking off for every model that thinks (Qwen3,
       // gpt-oss, Gemma); models that do not think ignore it.
       ...(opts.think === undefined ? {} : { think: opts.think }),
-      ...(opts.unload ? { keep_alive: 0 } : {}),
+      keep_alive: LLM_KEEP_ALIVE,
     }),
     signal: opts.signal,
   });
@@ -151,5 +167,15 @@ export async function* chatStream(
     if (chunk.error) throw new OllamaError(chunk.error, "other");
     const token = chunk.message?.content;
     if (token) yield token;
+    if (chunk.done && opts.onStats) {
+      const ms = (ns: number | undefined) => Math.round((ns ?? 0) / 1e6);
+      opts.onStats({
+        loadMs: ms(chunk.load_duration),
+        promptTokens: chunk.prompt_eval_count ?? 0,
+        promptMs: ms(chunk.prompt_eval_duration),
+        outputTokens: chunk.eval_count ?? 0,
+        outputMs: ms(chunk.eval_duration),
+      });
+    }
   }
 }
