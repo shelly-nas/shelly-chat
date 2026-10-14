@@ -87,9 +87,13 @@ CREATE TABLE IF NOT EXISTS chunks (
     position    integer NOT NULL,
     content     text    NOT NULL,
     metadata    jsonb   NOT NULL DEFAULT '{}',
-    embedding   vector
+    embedding   vector,
+    -- The words of the chunk, for keyword search next to the vectors (hybrid
+    -- search). Dutch and English word forms both, since documents mix them.
+    tsv         tsvector GENERATED ALWAYS AS (to_tsvector('dutch', content) || to_tsvector('english', content)) STORED
 );
 CREATE INDEX IF NOT EXISTS chunks_document_id_idx ON chunks (document_id);
+CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING gin (tsv);
 CREATE INDEX IF NOT EXISTS chunks_parent_id_idx ON chunks (parent_id);
 
 -- Abbreviation definitions found in the documents ("VI (Versleutelde

@@ -58,10 +58,10 @@ export const api = {
       signal,
     }),
 
-  retrieve: (embedding: number[], embedModel: string, indexId: number, signal?: AbortSignal) =>
+  retrieve: (embedding: number[], embedModel: string, indexId: number, query: string, signal?: AbortSignal) =>
     request<{ contexts: SourceContext[] }>("/api/retrieve", {
       method: "POST",
-      body: JSON.stringify({ embedding, embed_model: embedModel, index_id: indexId }),
+      body: JSON.stringify({ embedding, embed_model: embedModel, index_id: indexId, query }),
       signal,
     }),
 

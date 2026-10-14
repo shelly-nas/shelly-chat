@@ -38,9 +38,27 @@ Waar wat gebeurt bij een vraag:
 |---|---|---|
 | 1. Afkortingen uitschrijven (`VI` → `VI (Versleutelde Identiteit)`) | NAS | `POST /api/expand`, woordenboek uit de documenten |
 | 2. Vraag omzetten naar een vector | jouw computer | browser → Ollama `/api/embed`, met het model van de index |
-| 3. Zoeken en auto-mergen | NAS | `POST /api/retrieve`, cosine-zoekopdracht in pgvector. Komen genoeg kleine chunks van één sectie terug, dan krijgt het model de hele sectie |
+| 3. Zoeken en rangschikken | NAS | `POST /api/retrieve`, zie hieronder |
 | 4. Antwoord schrijven en streamen | jouw computer | browser → Ollama `/api/chat` |
 | 5. Gesprek bewaren | NAS | `POST /api/conversations` |
+
+**Zoeken en rangschikken** (`server/app/retrieval.py`), allemaal zonder model:
+
+1. **Op betekenis:** de vraag wordt omgezet met het embeddingmodel van de index. Qwen3-Embedding krijgt daarbij
+   een instructie vóór de vraag (`Instruct: … Query: …`), waarvoor het getraind is. Daarna een exacte
+   cosine-zoekopdracht over alle kleine chunks van de index.
+2. **Op trefwoorden** (hybride zoeken): Postgres full-text search met Nederlandse en Engelse woordvormen vindt
+   namen, nummers en vaste termen die vectoren missen. Beide lijsten worden samengevoegd met *reciprocal rank
+   fusion*: wat in beide hoog staat, komt bovenaan.
+3. **Relevant genoeg:** een chunk telt alleen boven de minimale relevantie, en binnen een maximaal verschil met
+   de beste bron (standaard 0,15).
+4. **Hele secties:** worden genoeg kleine chunks van één sectie gevonden, dan krijgt het model de hele sectie.
+   Die telt als haar beste chunk plus een bonus per extra treffer, dus meer treffers tillen haar op.
+5. **Gevarieerd:** de bronnen per vraag worden gekozen met *maximal marginal relevance*: relevant, maar niet
+   bijna hetzelfde als een bron die al gekozen is.
+
+Bij het knippen krijgt elke chunk het kopjespad van zijn plek in het document mee ("Contract X › Artikel 4"),
+uit Markdown-, AsciiDoc- en Word-koppen. Dat gaat mee in de embedding, staat bij de bron en gaat naar het model.
 
 De **NAS draait geen enkel model**: geen LLM, geen embeddings en geen reranker. Een NAS zonder GPU is
 genoeg.
@@ -93,7 +111,7 @@ Het scherm **Instellingen** heeft drie delen:
 | Deel | Waar bewaard | Wat |
 |---|---|---|
 | **Deze browser** | localStorage | Ollama-adres, taalmodel, denken uitzetten, modellen ontladen, afkortingen uitschrijven, index-token |
-| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, ook antwoorden zonder relevante bron, gespreksgeheugen, maximale vraaglengte |
+| **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, ook op trefwoorden zoeken, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, maximaal verschil met de beste bron, ook antwoorden zonder relevante bron, gespreksgeheugen, maximale vraaglengte |
 | **Indexeren** | NAS, voor iedereen | embeddingmodel (uit de modellen in Ollama), grote en kleine chunks, overlap, maximale bestandsgrootte |
 
 Wat op de NAS staat, geldt voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste waarde.
@@ -137,8 +155,8 @@ veranderd:
 - **Gesprekken worden bewaard** op de NAS en staan in de zijbalk.
 - **Knippen gebeurt op de NAS** (LlamaIndex' `HierarchicalNodeParser`, een tekstsplitter en geen model),
   zodat de app en de CLI dezelfde chunks maken.
-- **Geen cross-encoder-reranking meer.** Dat zou een model op de NAS zetten. De volgorde komt nu uit de
-  cosine-scores na het auto-mergen.
+- **Geen cross-encoder-reranking meer.** Dat zou een model op de NAS zetten. De volgorde komt nu uit
+  hybride zoeken en de regels hieronder.
 
 ## Eenmalig per computer: Ollama klaarzetten
 

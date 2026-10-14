@@ -53,6 +53,11 @@ export default function SourcesPanel({ sources }: { sources: SourceContext[] }) 
         <Typography sx={{ mt: 3, fontSize: 14, fontWeight: 600, color: "text.primary", overflowWrap: "anywhere" }}>
           [{source.source_num}] {fileName(source.file_path)}
         </Typography>
+        {source.section_context && (
+          <Typography variant="body2" sx={{ mt: 1, overflowWrap: "anywhere" }}>
+            {source.section_context}
+          </Typography>
+        )}
         <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
           <Chip
             size="small"

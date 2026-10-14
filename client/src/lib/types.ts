@@ -70,6 +70,8 @@ export interface ServerConfig {
   query_max_length: number;
   llm_options: Record<string, number>;
   embed_model: string | null;
+  /** Put before the question when embedding it, e.g. Qwen3's "Instruct: …\nQuery: ". */
+  query_prefix?: string;
 }
 
 export interface IndexStatus {
@@ -142,6 +144,8 @@ export interface SharedValues {
   context_top_n: number;
   automerge_threshold: number;
   min_similarity: number;
+  relative_similarity: number;
+  hybrid_search: boolean;
   answer_without_sources: boolean;
   history_max_turns: number;
   query_max_length: number;

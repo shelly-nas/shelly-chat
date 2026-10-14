@@ -34,6 +34,8 @@ SETTINGS: dict[str, Setting] = {
     "context_top_n": Setting(int, config.CONTEXT_TOP_N, 1, 100),
     "automerge_threshold": Setting(float, config.AUTOMERGE_THRESHOLD, 0, 1),
     "min_similarity": Setting(float, config.MIN_SIMILARITY, 0, 1),
+    "relative_similarity": Setting(float, config.RELATIVE_SIMILARITY, 0, 1),
+    "hybrid_search": Setting(bool, config.HYBRID_SEARCH),
     "answer_without_sources": Setting(bool, config.ANSWER_WITHOUT_SOURCES),
     "history_max_turns": Setting(int, config.CHAT_HISTORY_MAX_TURNS, 0, 100),
     "query_max_length": Setting(int, config.QUERY_MAX_LENGTH, 100, 100_000),
@@ -106,8 +108,6 @@ def check(values: dict) -> None:
         raise InvalidSetting("De kleine chunks moeten kleiner zijn dan de grote.")
     if values["parent_chunk_overlap"] >= values["parent_chunk_size"]:
         raise InvalidSetting("De overlap moet kleiner zijn dan de grote chunks.")
-    if values["context_top_n"] > values["retrieval_top_k"]:
-        raise InvalidSetting("Er kunnen niet meer bronnen naar het model dan er kandidaten worden opgehaald.")
     if values["llm_max_tokens"] > values["llm_num_ctx"]:
         raise InvalidSetting("Een antwoord kan niet langer zijn dan het contextvenster.")
 

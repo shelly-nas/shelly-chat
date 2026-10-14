@@ -105,6 +105,22 @@ const FIELDS: Record<Key, Field> = {
     max: 1,
     step: 0.01,
   },
+  relative_similarity: {
+    label: "Maximaal verschil met de beste bron",
+    help:
+      "Alleen bronnen die zoveel of minder onder de beste bron scoren tellen mee; zo past de grens zich aan de vraag aan. " +
+      "0,15 betekent: is de beste 72%, dan telt alles vanaf 57%. 0 is uit.",
+    min: 0,
+    max: 1,
+    step: 0.01,
+  },
+  hybrid_search: {
+    label: "Ook op trefwoorden zoeken",
+    help:
+      "Zoekt naast de betekenis ook op de woorden zelf (Nederlandse en Engelse woordvormen), zodat namen, nummers en " +
+      "vaste termen gevonden worden. Beide lijsten worden samengevoegd.",
+    toggle: true,
+  },
   answer_without_sources: {
     label: "Ook antwoorden zonder relevante bron",
     help:
@@ -160,7 +176,18 @@ const REBUILD_KEYS: Key[] = ["embed_model", ...CHUNK_KEYS];
 const ANSWER_GROUPS: { title: string; keys: Key[] }[] = [
   { title: "Instructies", keys: ["system_prompt", "no_answer_response"] },
   { title: "Taalmodel", keys: ["llm_temperature", "llm_top_p", "llm_top_k", "llm_num_ctx", "llm_max_tokens"] },
-  { title: "Zoeken", keys: ["retrieval_top_k", "context_top_n", "automerge_threshold", "min_similarity", "answer_without_sources"] },
+  {
+    title: "Zoeken",
+    keys: [
+      "hybrid_search",
+      "retrieval_top_k",
+      "context_top_n",
+      "automerge_threshold",
+      "min_similarity",
+      "relative_similarity",
+      "answer_without_sources",
+    ],
+  },
   { title: "Gesprek", keys: ["history_max_turns", "query_max_length"] },
 ];
 const INDEX_GROUPS: { title: string; keys: Key[] }[] = [
@@ -189,7 +216,6 @@ function parse(key: Key, raw: string): { value: Value } | { error: string } {
 function crossCheck(v: SharedValues): string | null {
   if (v.child_chunk_size >= v.parent_chunk_size) return "De kleine chunks moeten kleiner zijn dan de grote.";
   if (v.parent_chunk_overlap >= v.parent_chunk_size) return "De overlap moet kleiner zijn dan de grote chunks.";
-  if (v.context_top_n > v.retrieval_top_k) return "Er kunnen niet meer bronnen naar het model dan er kandidaten worden opgehaald.";
   if (v.llm_max_tokens > v.llm_num_ctx) return "Een antwoord kan niet langer zijn dan het contextvenster.";
   return null;
 }

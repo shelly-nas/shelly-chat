@@ -59,6 +59,14 @@ AUTOMERGE_THRESHOLD = _float("AUTOMERGE_THRESHOLD", 0.5)
 # no-answer text, without asking the model. 0 is off. The right value depends
 # on the embedding model; with qwen3-embedding, matches under 0.5 are noise.
 MIN_SIMILARITY = _float("MIN_SIMILARITY", 0.5)
+# Only sources within this much of the best one count; 0 is off. Adapts to
+# the question and the model, where MIN_SIMILARITY is a fixed floor.
+RELATIVE_SIMILARITY = _float("RELATIVE_SIMILARITY", 0.15)
+# Search on keywords too (names, numbers, exact terms) and merge both lists.
+HYBRID_SEARCH = os.getenv("HYBRID_SEARCH", "true").lower() != "false"
+# Maximal marginal relevance: 1 is relevance only, lower favours sources that
+# differ from the ones already chosen (fewer near-duplicates).
+MMR_LAMBDA = _float("MMR_LAMBDA", 0.7)
 QUERY_MAX_LENGTH = _int("QUERY_MAX_LENGTH", 4000)
 # Without a relevant source the model still answers, marked as outside the
 # sources (see the system prompt). false: answer NO_ANSWER_RESPONSE right away.

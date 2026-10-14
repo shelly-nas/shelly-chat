@@ -28,7 +28,8 @@ LLM_THINK = os.getenv("LLM_THINK", "false").lower() == "true"
 
 def build_context_string(contexts: list[dict]) -> str:
     return "\n\n".join(
-        f"[{i + 1}] {c['file_path']} (page {c['page_number']})\n{c['content']}"
+        f"[{i + 1}] {c['file_path']}{' › ' + c['section_context'] if c.get('section_context') else ''}"
+        f" (page {c['page_number']})\n{c['content']}"
         for i, c in enumerate(contexts)
     )
 
@@ -56,13 +57,13 @@ def search(question: str, idx: int, config: dict) -> tuple[str, list[dict], list
 
     embedding = requests.post(
         f"{OLLAMA_BASE_URL}/api/embed",
-        json={"model": config["embed_model"], "input": [query], "keep_alive": 0},
+        json={"model": config["embed_model"], "input": [config.get("query_prefix", "") + query], "keep_alive": 0},
         timeout=300,
     ).json()["embeddings"][0]
 
     resp = requests.post(
         f"{SHELLY_CHAT_URL}/api/retrieve",
-        json={"embedding": embedding, "embed_model": config["embed_model"], "index_id": idx},
+        json={"embedding": embedding, "embed_model": config["embed_model"], "index_id": idx, "query": query},
         timeout=60,
     )
     resp.raise_for_status()

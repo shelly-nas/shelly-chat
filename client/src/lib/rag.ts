@@ -21,7 +21,8 @@ export const STAGE_LABEL: Record<Stage, string> = {
 
 export function buildContextString(contexts: SourceContext[]): string {
   return contexts
-    .map((c, i) => `[${i + 1}] ${c.file_path} (page ${c.page_number})\n${c.content}`)
+    // The section path ("Contract X › Artikel 4") tells the model where a fragment belongs.
+    .map((c, i) => `[${i + 1}] ${c.file_path}${c.section_context ? ` › ${c.section_context}` : ""} (page ${c.page_number})\n${c.content}`)
     .join("\n\n");
 }
 
@@ -92,9 +93,14 @@ async function search(o: AskOptions, indexId: number, embedModel: string) {
     o.onExpansions(query, expansions);
   }
   o.onStage("embedding");
-  const embedding = await embed(o.ollamaUrl, embedModel, query, { unload: o.unloadModels, signal: o.signal });
+  // Models like Qwen3-Embedding search better with an instruction before the question.
+  const embedding = await embed(o.ollamaUrl, embedModel, (o.config.query_prefix ?? "") + query, {
+    unload: o.unloadModels,
+    signal: o.signal,
+  });
   o.onStage("retrieving");
-  const { contexts } = await api.retrieve(embedding, embedModel, indexId, o.signal);
+  // The text goes along for the keyword half of hybrid search.
+  const { contexts } = await api.retrieve(embedding, embedModel, indexId, query, o.signal);
   return { query, expansions, contexts };
 }
 

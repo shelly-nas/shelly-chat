@@ -156,6 +156,17 @@ def test_shared_documents_and_search_per_index(client):
     assert "team/renovate.docx" not in search(b["id"], (0, 0, 1))
     assert set(search(b["id"])) == {"bv/brp.md"}
 
+    # Hybrid search: with room for one candidate by meaning, the keywords still
+    # bring in the BRP document, which is relevant enough (0.6) to count.
+    def hybrid_search(on: bool):
+        client.put("/api/settings", json={"retrieval_top_k": 1, "context_top_n": 5, "relative_similarity": 0, "hybrid_search": on}, headers=AUTH)
+        r = client.post("/api/retrieve", json={"embedding": [0.6, 0, 0.8], "embed_model": "test-embed", "index_id": a["id"], "query": "Basisregistratie Personen"})
+        return {c["file_path"] for c in r.json()["contexts"]}
+
+    assert hybrid_search(False) == {"team/renovate.docx"}
+    assert hybrid_search(True) == {"team/renovate.docx", "bv/brp.md"}
+    client.put("/api/settings", json={k: None for k in ("retrieval_top_k", "context_top_n", "relative_similarity", "hybrid_search")}, headers=AUTH)
+
     # A minimum similarity drops weak matches; with none left there are no sources.
     client.put("/api/settings", json={"min_similarity": 0.5}, headers=AUTH)
     assert set(search(a["id"], (0, 0, 1))) == {"team/renovate.docx"}
@@ -269,7 +280,7 @@ def test_shared_settings(client, docs_root):
     assert "answer_without_sources" in off["changed"] and client.get("/api/config").json()["answer_without_sources"] is False
     client.put("/api/settings", json={"answer_without_sources": None}, headers=AUTH)
     for bad in ({"answer_without_sources": 1}, {"llm_top_p": 1.5}, {"llm_top_k": 2.5}, {"onbekend": 1}, {"system_prompt": " "},
-                {"child_chunk_size": 2000}, {"context_top_n": 60, "retrieval_top_k": 50}):
+                {"child_chunk_size": 2000}, {"llm_max_tokens": 64000, "llm_num_ctx": 32000}):
         assert client.put("/api/settings", json=bad, headers=AUTH).status_code == 422, bad
     assert client.get("/api/settings").json()["values"]["llm_temperature"] == 0.2
 
@@ -360,3 +371,10 @@ def test_one_indexing_run_at_a_time(client, monkeypatch):
     assert client.put("/api/index/run", json={"run_id": "cli-run-456", "label": "CLI"}, headers=AUTH).status_code == 200
     assert client.delete("/api/index/run/cli-run-456", headers=AUTH).status_code == 204
     assert client.get("/api/index/run").json()["run"] is None
+
+
+def test_query_prefix_for_the_embedding_model():
+    from app.embedding import query_prefix
+
+    assert query_prefix("qwen3-embedding:4b").startswith("Instruct: ") and query_prefix("qwen3-embedding").endswith("Query: ")
+    assert query_prefix("bge-m3") == "" and query_prefix(None) == ""

@@ -8,7 +8,7 @@ answer from Ollama. Config comes from /api/config once at startup.
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app import abbreviations, config, db, retrieval, settings
+from app import abbreviations, config, db, embedding, retrieval, settings
 
 router = APIRouter(prefix="/api")
 
@@ -44,6 +44,8 @@ def get_config():
         # The embedding model is not a choice: a question has to be embedded
         # with the model the index was built with, or the vectors mean nothing.
         "embed_model": meta["embed_model"] if meta else None,
+        # Put before the question when embedding it (see app/embedding.py).
+        "query_prefix": embedding.query_prefix(meta["embed_model"] if meta else None),
     }
 
 
@@ -80,6 +82,8 @@ class RetrieveRequest(BaseModel):
     embedding: list[float] = Field(min_length=1)
     embed_model: str
     index_id: int
+    # The (expanded) question as text, for the keyword half of hybrid search.
+    query: str = Field(default="", max_length=100_000)
 
 
 @router.post("/retrieve")
@@ -108,6 +112,9 @@ def retrieve(request: RetrieveRequest):
             top_n=s["context_top_n"],
             threshold=s["automerge_threshold"],
             min_similarity=s["min_similarity"],
+            query=request.query,
+            hybrid=s["hybrid_search"],
+            relative_similarity=s["relative_similarity"],
         )
     except retrieval.DimensionMismatch as exc:
         raise HTTPException(status_code=409, detail=str(exc))
