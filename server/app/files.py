@@ -15,7 +15,7 @@ import pathspec
 
 from app import config
 
-SUPPORTED_EXTENSIONS = {".md", ".adoc", ".txt", ".pdf", ".docx", ".doc"}
+SUPPORTED_EXTENSIONS = {".md", ".adoc", ".txt", ".pdf", ".docx", ".doc", ".xlsx", ".csv"}
 
 # With the whole file system mounted: never walk the kernel's and the
 # system's own folders. They hold no documents and /proc never ends.

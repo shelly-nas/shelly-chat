@@ -57,6 +57,11 @@ Waar wat gebeurt bij een vraag:
 5. **Gevarieerd:** de bronnen per vraag worden gekozen met *maximal marginal relevance*: relevant, maar niet
    bijna hetzelfde als een bron die al gekozen is.
 
+**Tabellen** blijven tabellen: tabellen in PDF's (met lijnen, via `pdfplumber`), Word-tabellen, Excel-tabbladen en
+CSV-bestanden worden Markdown-tabellen met hun kopregel. Een grote tabel wordt in stukken van hele rijen geknipt, en
+elk stuk krijgt de kopregel opnieuw, zodat een cel zijn kolomnaam houdt. Tabellen zonder lijnen in een PDF en
+gescande PDF's (zonder tekstlaag) worden nog als gewone tekst gelezen.
+
 Bij het knippen krijgt elke chunk het kopjespad van zijn plek in het document mee ("Contract X › Artikel 4"),
 uit Markdown-, AsciiDoc- en Word-koppen. Dat gaat mee in de embedding, staat bij de bron en gaat naar het model.
 
@@ -136,7 +141,7 @@ Op acc en productie ziet de server **de hele NAS**: `/` wordt alleen-lezen in de
 `/volume1/team/renovate.pdf` (één bestand). Bij de bronnen van een index kun je door de NAS bladeren.
 
 Omdat de server alles kan lezen, gelden deze grenzen:
-- Alleen ondersteunde documenten tellen mee (`.md`, `.adoc`, `.txt`, `.pdf`, `.docx`, `.doc`), en verborgen
+- Alleen ondersteunde documenten tellen mee (`.md`, `.adoc`, `.txt`, `.pdf`, `.docx`, `.doc`, `.xlsx`, `.csv`), en verborgen
   mappen (`.git`), Synology-mappen (`@eaDir`, `@docker`) en systeemmappen (`/proc`, `/sys`, `/dev`, `/run`,
   `/tmp`) worden overgeslagen.
 - `/` zelf kan geen bron zijn; kies een map.

@@ -110,7 +110,7 @@ export default function SourcesEditor({ index, settings, token, canEdit, onChang
                 <code>handboek</code> is dus de map handboek daarin, met alles erin.
               </>
             )}{" "}
-            Ondersteund: .md, .adoc, .txt, .pdf, .docx en .doc.
+            Ondersteund: .md, .adoc, .txt, .pdf, .docx, .doc, .xlsx en .csv.
           </Typography>
           {!settings.documents_root_exists && (
             <Typography variant="body2" sx={{ mt: 2, color: "text.primary" }}>
