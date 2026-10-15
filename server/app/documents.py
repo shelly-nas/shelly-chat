@@ -19,7 +19,7 @@ import logging
 import re
 from pathlib import Path
 
-from app import tables
+from app import tables, visuals
 
 from llama_index.core import Document
 from llama_index.core.node_parser import HierarchicalNodeParser, SentenceSplitter, get_leaf_nodes
@@ -29,15 +29,19 @@ from llama_index.core.schema import MetadataMode
 logger = logging.getLogger(__name__)
 
 
-def extract_text(path: Path) -> str:
-    """The text of a document, with headings as Markdown headings and tables as Markdown tables."""
+def extract_text(path: Path, with_visuals: bool = False) -> str:
+    """The text of a document, with headings as Markdown headings and tables as Markdown tables.
+
+    with_visuals: mark PDF pages and Word images that need a description with a
+    placeholder (app/visuals.py), where the description will go.
+    """
     ext = path.suffix.lower()
     if ext in (".md", ".adoc", ".txt"):
         return path.read_text(encoding="utf-8", errors="replace")
     if ext == ".pdf":
-        return _pdf_text(path)
+        return _pdf_text(path, with_visuals)
     if ext in (".docx", ".doc"):
-        return _docx_text(path)
+        return _docx_text(path, with_visuals)
     if ext == ".xlsx":
         return _xlsx_text(path)
     if ext == ".csv":
@@ -45,7 +49,7 @@ def extract_text(path: Path) -> str:
     raise ValueError(f"Bestandstype {ext or '(geen)'} wordt niet ondersteund.")
 
 
-def _pdf_text(path: Path) -> str:
+def _pdf_text(path: Path, with_visuals: bool = False) -> str:
     """Text and tables of a PDF in reading order, page by page.
 
     pdfplumber finds ruled tables; each becomes a Markdown table, and the text
@@ -57,7 +61,7 @@ def _pdf_text(path: Path) -> str:
 
         parts: list[str] = []
         with pdfplumber.open(str(path)) as pdf:
-            for page in pdf.pages:
+            for number, page in enumerate(pdf.pages, start=1):
                 x0, top, x1, bottom = page.bbox
 
                 def text_between(upper: float, lower: float) -> str:
@@ -78,6 +82,8 @@ def _pdf_text(path: Path) -> str:
                     parts.append(markdown or text_between(t_top, t_bottom))
                     cursor = t_bottom
                 parts.append(text_between(cursor, bottom))
+                if with_visuals and visuals.pdf_page_needs_description(page):
+                    parts.append(visuals.placeholder(f"p{number}"))
         return "\n\n".join(p.strip() for p in parts if p.strip())
     except Exception as exc:  # pdfplumber is stricter than pdfminer on broken files
         logger.warning("pdfplumber kon %s niet lezen (%s); platte tekst via pdfminer", path, exc)
@@ -86,18 +92,24 @@ def _pdf_text(path: Path) -> str:
         return pdf_text(str(path)) or ""
 
 
-def _docx_text(path: Path) -> str:
+def _docx_text(path: Path, with_visuals: bool = False) -> str:
     """Paragraphs and tables in document order; headings and tables as Markdown."""
     import docx
     from docx.table import Table
 
+    document = docx.Document(str(path))
     lines = []
-    for block in docx.Document(str(path)).iter_inner_content():
+    image_number = 0  # in the same order as visuals.docx_images, which renders them
+    for block in document.iter_inner_content():
         if isinstance(block, Table):
             rows = [[cell.text for cell in row.cells] for row in block.rows]
             lines += ["", tables.markdown_table(rows), ""]
         else:
             lines.append(_docx_line(block))
+            if with_visuals:
+                for _ in visuals.paragraph_images(document, block):
+                    image_number += 1
+                    lines.append(visuals.placeholder(f"w{image_number}"))
     return "\n".join(lines)
 
 

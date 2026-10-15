@@ -47,6 +47,10 @@ PARENT_CHUNK_OVERLAP = _int("PARENT_CHUNK_OVERLAP", 300)
 # The Ollama model that embeds the chunks and the questions. A change, like
 # one of the chunk sizes, rebuilds every index on the next run.
 EMBED_MODEL = os.getenv("EMBED_MODEL") or "qwen3-embedding:latest"
+# Ollama vision model that describes images and drawings while indexing
+# (see app/visuals.py); empty is off. At most VISION_MAX_IMAGES per document.
+VISION_MODEL = os.getenv("VISION_MODEL", "")
+VISION_MAX_IMAGES = _int("VISION_MAX_IMAGES", 20)
 # Larger files are not indexed: the server sees the whole NAS.
 MAX_FILE_MB = _int("MAX_FILE_MB", 50)
 

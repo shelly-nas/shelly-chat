@@ -62,6 +62,14 @@ CSV-bestanden worden Markdown-tabellen met hun kopregel. Een grote tabel wordt i
 elk stuk krijgt de kopregel opnieuw, zodat een cel zijn kolomnaam houdt. Tabellen zonder lijnen in een PDF en
 gescande PDF's (zonder tekstlaag) worden nog als gewone tekst gelezen.
 
+**Afbeeldingen en tekeningen** (standaard uit): kies onder Instellingen → Indexeren een vision-model in Ollama,
+zoals `qwen2.5vl` of `gemma3`. Bij het indexeren ziet de NAS welke PDF-pagina's vooral plaatje of tekening zijn (of
+bijna geen tekst hebben) en welke afbeeldingen in Word-documenten staan, en zet ze om naar een afbeelding. Het
+vision-model op je eigen computer beschrijft ze (soort tekening, titelblok, labels, wat erop staat), en die
+beschrijving komt op de plek van de afbeelding in de tekst, zodat ze gewoon vindbaar is. Dat is traag (per
+afbeelding tien seconden tot een minuut) en een model leest maten en details niet altijd goed af: open de tekening
+zelf voor de maten. Een ander vision-model beschrijft documenten met afbeeldingen bij de volgende run opnieuw.
+
 Bij het knippen krijgt elke chunk het kopjespad van zijn plek in het document mee ("Contract X › Artikel 4"),
 uit Markdown-, AsciiDoc- en Word-koppen. Dat gaat mee in de embedding, staat bij de bron en gaat naar het model.
 
@@ -117,7 +125,7 @@ Het scherm **Instellingen** heeft drie delen:
 |---|---|---|
 | **Deze browser** | localStorage | Ollama-adres, taalmodel, denken uitzetten, modellen ontladen, afkortingen uitschrijven, index-token |
 | **Antwoorden** | NAS, voor iedereen | systeemprompt, antwoord zonder bronnen, temperatuur, top-p, top-k, contextvenster, maximale antwoordlengte, ook op trefwoorden zoeken, kandidaten, bronnen per vraag, merge-drempel, minimale relevantie, maximaal verschil met de beste bron, ook antwoorden zonder relevante bron, gespreksgeheugen, maximale vraaglengte |
-| **Indexeren** | NAS, voor iedereen | embeddingmodel (uit de modellen in Ollama), grote en kleine chunks, overlap, maximale bestandsgrootte |
+| **Indexeren** | NAS, voor iedereen | embeddingmodel (uit de modellen in Ollama), grote en kleine chunks, overlap, maximale bestandsgrootte, afbeeldingen beschrijven (vision-model of uit), maximaal aantal afbeeldingen per document |
 
 Wat op de NAS staat, geldt voor alle gesprekken, ook bestaande: elke vraag gebruikt de laatste waarde.
 Wijzigen vraagt het `INDEX_TOKEN`. Alleen wat afwijkt van de standaard wordt bewaard; elk veld kan terug naar

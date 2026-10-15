@@ -117,6 +117,9 @@ export function useBlockers(data: IndexSettings | null, tokenState: TokenState, 
   const blockers: string[] = [];
   if (ollama.status !== "ok") blockers.push("Ollama is niet bereikbaar vanuit deze browser.");
   else if (!hasModel(ollama.models, embedModel)) blockers.push(`${embedModel} ontbreekt in Ollama: ollama pull ${embedModel}`);
+  const vision = data?.vision?.model;
+  if (vision && ollama.status === "ok" && !hasModel(ollama.models, vision))
+    blockers.push(`${vision} (afbeeldingen beschrijven) ontbreekt in Ollama: ollama pull ${vision}`);
   if (tokenState !== "ok") blockers.push("Vul het index-token van de NAS in (op het overzicht Indexen).");
   if (data && !data.documents_root_exists) blockers.push("De documentenmap is niet gekoppeld aan de server (zie DOCUMENTS_DIR).");
   return blockers;

@@ -16,8 +16,8 @@
 // host/indexing/indexer.py is the same run for the command line.
 import { api } from "./api";
 import { randomId } from "./id";
-import { embedMany, unload } from "./ollama";
-import type { ChunkConfig, IndexSettings } from "./types";
+import { describeImage, embedMany, unload } from "./ollama";
+import type { ChunkConfig, IndexSettings, PrepareResult } from "./types";
 
 export type LogLevel = "info" | "success" | "warning" | "error";
 
@@ -73,8 +73,8 @@ export function resetReason(
 
 const emptyCounts = (): RunCounts => ({ new: 0, changed: 0, unchanged: 0, deleted: 0, failed: 0 });
 
-/** Step 1: make sure the store uses this model; resets it when needed. Returns whether it did. */
-async function prepareStore(o: RunOptions): Promise<boolean> {
+/** Step 1: make sure the store uses this model; resets it when needed. Returns the settings. */
+async function prepareStore(o: RunOptions): Promise<IndexSettings> {
   const settings = await api.indexSettings();
   const sameModel = settings.meta?.embed_model === o.embedModel;
   let dimensions = sameModel ? settings.meta!.embed_dimensions : 0;
@@ -87,7 +87,36 @@ async function prepareStore(o: RunOptions): Promise<boolean> {
   if (reason) o.log("warning", `Alle indexen worden opnieuw opgebouwd: ${reason}.`);
   else if (o.full) o.log("info", "Volledig opnieuw: alle geïndexeerde documenten worden eerst verwijderd.");
   await api.putIndexMeta(o.indexToken, { embed_model: o.embedModel, embed_dimensions: dimensions, reset });
-  return reset;
+  if (settings.vision.model) o.log("info", `Afbeeldingen en tekeningen worden beschreven met ${settings.vision.model}.`);
+  return settings;
+}
+
+/**
+ * A document with images or drawings: have the vision model describe each one,
+ * then let the NAS put the descriptions in place (a second prepare).
+ */
+async function describe(
+  o: RunOptions,
+  vision: IndexSettings["vision"],
+  prepared: PrepareResult,
+  indexId: number,
+  onImage: (label: string) => void,
+): Promise<{ result: PrepareResult; described: number; ms: number }> {
+  const descriptions: Record<string, string> = {};
+  const started = performance.now();
+  for (const visual of prepared.visuals ?? []) {
+    onImage(visual.label);
+    try {
+      const { image } = await api.visual(o.indexToken, prepared.file_path, visual.id, o.signal);
+      const text = await describeImage(o.ollamaUrl, vision.model, vision.prompt, image, o.signal);
+      if (text) descriptions[visual.id] = text;
+    } catch (err) {
+      if (o.signal.aborted) throw err;
+      o.log("warning", `${prepared.file_path}: ${visual.label} beschrijven mislukt: ${(err as Error).message}`);
+    }
+  }
+  const result = await api.prepareDocument(o.indexToken, prepared.file_path, indexId, o.signal, descriptions);
+  return { result, described: Object.keys(descriptions).length, ms: performance.now() - started };
 }
 
 /** Steps 2-4 for one index; `position` is [which, of how many] in this run. */
@@ -97,6 +126,7 @@ async function indexOne(
   name: string,
   counts: RunCounts,
   position: [number, number],
+  vision: IndexSettings["vision"],
 ): Promise<void> {
   let total = 0;
   const report = (phase: RunProgress["phase"], current: string | null, done: number) =>
@@ -114,9 +144,15 @@ async function indexOne(
     report("indexing", filePath, i);
     try {
       started = performance.now();
-      const prepared = await api.prepareDocument(o.indexToken, filePath, indexId, o.signal);
+      let prepared = await api.prepareDocument(o.indexToken, filePath, indexId, o.signal);
       const read = performance.now() - started;
-      if (prepared.status === "unchanged" || prepared.status === "empty") {
+      let pictures = "";
+      if (prepared.status === "describe") {
+        const done = await describe(o, vision, prepared, indexId, (label) => report("indexing", `${filePath} (${label} beschrijven)`, i));
+        prepared = done.result;
+        pictures = `, ${done.described} ${done.described === 1 ? "afbeelding" : "afbeeldingen"} beschreven in ${seconds(done.ms)}`;
+      }
+      if (prepared.status !== "new" && prepared.status !== "changed") {
         counts.unchanged++;
         // Unchanged still means the NAS read and hashed it; say so when that took long.
         if (read > 5000) o.log("info", `${filePath}: ongewijzigd, maar lezen duurde ${seconds(read)}.`);
@@ -140,11 +176,12 @@ async function indexOne(
         },
         o.signal,
       );
-      counts[prepared.status]++;
+      const status = prepared.status;
+      counts[status]++;
       const extra = stored.abbreviations ? `, ${stored.abbreviations} afkortingen` : "";
       // Where the time goes: reading and splitting on the NAS, embedding with Ollama, storing on the NAS.
       const timing = `lezen ${seconds(read)} · embedden ${seconds(embedded)} · opslaan ${seconds(performance.now() - started)}`;
-      o.log("success", `${filePath}: ${prepared.status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra} (${timing})`);
+      o.log("success", `${filePath}: ${status === "new" ? "nieuw" : "gewijzigd"}, ${stored.chunks} chunks${extra}${pictures} (${timing})`);
     } catch (err) {
       if (o.signal.aborted) throw err;
       counts.failed++;
@@ -182,16 +219,18 @@ export async function runIndexes(o: RunOptions, indexes: { id: number; name: str
   const renew = setInterval(() => {
     api.leaseRun(o.indexToken, runId, label).catch((err) => o.log("warning", `Slot op de NAS verlengen mislukt: ${(err as Error).message}`));
   }, LEASE_RENEW_MS);
+  let vision: IndexSettings["vision"] = { model: "", prompt: "" };
   try {
-    await prepareStore(o);
+    vision = (await prepareStore(o)).vision;
     for (const [i, index] of indexes.entries()) {
       if (o.signal.aborted) throw new DOMException("Gestopt", "AbortError");
-      await indexOne(o, index.id, index.name, counts, [i + 1, indexes.length]);
+      await indexOne(o, index.id, index.name, counts, [i + 1, indexes.length], vision);
     }
   } finally {
     clearInterval(renew);
     api.endRun(o.indexToken, runId).catch(() => {});
     unload(o.ollamaUrl, o.embedModel).catch(() => {});
+    if (vision.model) unload(o.ollamaUrl, vision.model).catch(() => {});
   }
   return counts;
 }

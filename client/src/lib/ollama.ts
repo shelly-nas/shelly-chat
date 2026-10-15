@@ -98,6 +98,29 @@ export async function embedMany(
   return vectors;
 }
 
+/** Have a vision model describe one image (base64 PNG); the whole answer at once. */
+export async function describeImage(
+  ollamaUrl: string,
+  model: string,
+  prompt: string,
+  image: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await call(`${base(ollamaUrl)}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: prompt, images: [image] }],
+      stream: false,
+      think: false,
+      options: { temperature: 0 },
+    }),
+    signal,
+  });
+  return ((await res.json()).message?.content ?? "").trim();
+}
+
 /** Free a model's memory now instead of after Ollama's keep-alive. */
 export async function unload(ollamaUrl: string, model: string): Promise<void> {
   await call(`${base(ollamaUrl)}/api/generate`, {

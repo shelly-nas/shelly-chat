@@ -126,6 +126,8 @@ export interface IndexSettings {
   chunk_config: ChunkConfig;
   /** The model the next run embeds with (Instellingen → Indexeren); meta has the store's. */
   embed_model: string;
+  /** Describing images while indexing: model "" is off; prompt is what the model is asked. */
+  vision: { model: string; prompt: string };
   /** The documents folder as the NAS sees it, e.g. /volume1/docker/shelly-chat/documents. */
   documents_dir: string;
   documents_root_exists: boolean;
@@ -154,6 +156,8 @@ export interface SharedValues {
   child_chunk_size: number;
   parent_chunk_overlap: number;
   max_file_mb: number;
+  vision_model: string;
+  vision_max_images: number;
 }
 
 export interface SharedSettings {
@@ -182,8 +186,10 @@ export interface PreparedNode {
 
 export interface PrepareResult {
   file_path: string;
-  status: "new" | "changed" | "unchanged" | "empty";
+  /** describe: first describe `visuals` with the vision model, then prepare again with the descriptions. */
+  status: "new" | "changed" | "unchanged" | "empty" | "describe";
   content_hash?: string;
+  visuals?: { id: string; label: string }[];
   document?: {
     file_path: string;
     file_name: string;

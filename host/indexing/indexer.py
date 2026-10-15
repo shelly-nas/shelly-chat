@@ -28,11 +28,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import requests
 from dotenv import load_dotenv
 
 from indexing.console import log_error, log_info, log_success, log_warn
 from indexing.nas_client import NasClient, NasError
-from indexing.ollama import OllamaEmbedder
+from indexing.ollama import OllamaEmbedder, describe_image, unload_model
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
@@ -74,10 +75,29 @@ def reset_reason(meta: Optional[dict], chunk_config: dict, embed_model: str, dim
     return f"andere chunkinstellingen ({', '.join(changed)})" if changed else None
 
 
-def store_document(file_path: str, index_id: int, nas: NasClient, embedder: OllamaEmbedder) -> Optional[dict]:
+def describe(prepared: dict, index_id: int, nas: NasClient, embedder: OllamaEmbedder, vision: dict) -> dict:
+    """Have the vision model describe the document's images, then prepare it again with them."""
+    descriptions = {}
+    for visual in prepared.get("visuals", []):
+        try:
+            image = nas.visual(prepared["file_path"], visual["id"])
+            text = describe_image(embedder.base_url, vision["model"], vision["prompt"], image)
+            if text:
+                descriptions[visual["id"]] = text
+        except (NasError, RuntimeError, requests.RequestException) as exc:
+            log_warn(f"  {prepared['file_path']}: {visual['label']} beschrijven mislukt — {exc}")
+    log_info(f"  {prepared['file_path']}: {len(descriptions)} afbeelding(en) beschreven met {vision['model']}")
+    return nas.prepare_document(prepared["file_path"], index_id, descriptions)
+
+
+def store_document(
+    file_path: str, index_id: int, nas: NasClient, embedder: OllamaEmbedder, vision: Optional[dict] = None
+) -> Optional[dict]:
     """Prepare, embed and store one document for an index. Returns the outcome, or None if unchanged."""
     prepared = nas.prepare_document(file_path, index_id)
-    if prepared["status"] in ("unchanged", "empty"):
+    if prepared["status"] == "describe":
+        prepared = describe(prepared, index_id, nas, embedder, vision or {})
+    if prepared["status"] not in ("new", "changed"):
         return None
 
     document = prepared["document"]
@@ -93,7 +113,9 @@ def store_document(file_path: str, index_id: int, nas: NasClient, embedder: Olla
     return {"status": prepared["status"], **stored}
 
 
-def index_one(index: dict, nas: NasClient, embedder: OllamaEmbedder, counts: Dict[str, int]) -> None:
+def index_one(
+    index: dict, nas: NasClient, embedder: OllamaEmbedder, counts: Dict[str, int], vision: Optional[dict] = None
+) -> None:
     name = index["name"]
     listing = nas.index_files(index["id"])
     for source in listing["missing"]:
@@ -103,7 +125,7 @@ def index_one(index: dict, nas: NasClient, embedder: OllamaEmbedder, counts: Dic
 
     for i, path in enumerate(files, 1):
         try:
-            outcome = store_document(path, index["id"], nas, embedder)
+            outcome = store_document(path, index["id"], nas, embedder, vision)
         except (NasError, RuntimeError) as exc:
             counts["failed"] += 1
             log_error(f"  [{i}/{len(files)}] {path}: {exc}")
@@ -131,6 +153,8 @@ def run_pipeline(config: IndexingConfig, full_reindex: bool = False, only: Optio
     settings = nas.settings()
     config.embed_model = settings["embed_model"]
     embedder = config.embedder()
+    # Describing images and drawings (Instellingen → Indexeren); model "" is off.
+    vision = settings.get("vision") or {"model": "", "prompt": ""}
 
     indexes: List[dict] = nas.indexes()
     if only is not None:
@@ -173,10 +197,12 @@ def run_pipeline(config: IndexingConfig, full_reindex: bool = False, only: Optio
         # 2-3. Each index
         try:
             for index in indexes:
-                index_one(index, nas, embedder, counts)
+                index_one(index, nas, embedder, counts, vision)
         finally:
             try:
                 embedder.unload()
+                if vision["model"]:
+                    unload_model(embedder.base_url, vision["model"])
             except Exception as exc:
                 log_warn(f"Model ontladen mislukt — {exc}")
     finally:

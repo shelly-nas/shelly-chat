@@ -9,11 +9,16 @@ META = {"embed_model": "qwen3-embedding:latest", "embed_dimensions": 3, **CHUNKS
 
 
 class FakeNas:
-    def __init__(self, indexes, meta=META):
+    def __init__(self, indexes, meta=META, vision_model=""):
         # indexes: {name: {"files": [...], "missing": [...]}}
         self.indexes_ = indexes
         self.meta = meta
+        self.vision_model = vision_model
         self.calls = []
+
+    def visual(self, file_path, visual_id):
+        self.calls.append(("visual", file_path, visual_id))
+        return "iVBORw0KGgo="
 
     def indexes(self):
         return [{"id": n, "name": name} for n, name in enumerate(self.indexes_, 1)]
@@ -22,7 +27,8 @@ class FakeNas:
         return list(self.indexes_)[index_id - 1]
 
     def settings(self):
-        return {"meta": self.meta, "chunk_config": CHUNKS, "embed_model": "qwen3-embedding:latest"}
+        return {"meta": self.meta, "chunk_config": CHUNKS, "embed_model": "qwen3-embedding:latest",
+                "vision": {"model": self.vision_model, "prompt": "Beschrijf."}}
 
     def lease_run(self, run_id, label):
         self.calls.append(("lease", label))
@@ -38,10 +44,15 @@ class FakeNas:
         spec = self.indexes_[self._name(index_id)]
         return {"files": spec["files"], "missing": spec.get("missing", [])}
 
-    def prepare_document(self, file_path, index_id):
+    def prepare_document(self, file_path, index_id, descriptions=None):
         self.calls.append(("prepare", file_path, index_id))
         if file_path.startswith("same"):
             return {"status": "unchanged"}
+        if file_path.startswith("drawing") and descriptions is None:
+            return {"status": "describe", "file_path": file_path,
+                    "visuals": [{"id": "p1", "label": "pagina 1"}, {"id": "p2", "label": "pagina 2"}]}
+        if descriptions is not None:
+            self.calls.append(("descriptions", file_path, descriptions))
         nodes = [
             {"id": "p", "parent_id": None, "is_leaf": False, "embed_text": None},
             {"id": "c", "parent_id": "p", "is_leaf": True, "embed_text": "embed me"},
@@ -58,6 +69,8 @@ class FakeNas:
 
 
 class FakeEmbedder:
+    base_url = "http://localhost:11434"
+
     def embed(self, texts):
         return [[1.0, 2.0, 3.0] for _ in texts]
 
@@ -110,3 +123,18 @@ def test_reset_reason():
     assert "embeddingmodel" in reset_reason(meta, CHUNKS, "other", 3)
     assert "dimensie" in reset_reason(meta, CHUNKS, "m", 4)
     assert "parent_chunk_size" in reset_reason(meta, {**CHUNKS, "parent_chunk_size": 1}, "m", 3)
+
+
+def test_images_are_described_with_the_vision_model(monkeypatch):
+    import indexing.indexer as indexer
+
+    asked = []
+    monkeypatch.setattr(indexer, "describe_image", lambda url, model, prompt, image: asked.append(model) or "Plattegrond BG-01")
+    monkeypatch.setattr(indexer, "unload_model", lambda url, model: None)
+    nas = FakeNas({"Tekeningen": {"files": ["drawing.pdf"]}}, vision_model="qwen2.5vl")
+    counts = _run(monkeypatch, nas)
+
+    assert counts["new"] == 1 and asked == ["qwen2.5vl", "qwen2.5vl"]
+    assert ("descriptions", "drawing.pdf", {"p1": "Plattegrond BG-01", "p2": "Plattegrond BG-01"}) in nas.calls
+    put = next(c for c in nas.calls if c[0] == "put")
+    assert put[1] == "drawing.pdf"
