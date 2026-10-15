@@ -52,8 +52,15 @@ class NasClient:
         """Documents in the index (`files`) and sources that could not be read (`missing`)."""
         return self._request("GET", f"/api/indexes/{index_id}/files")
 
-    def prepare_document(self, file_path: str, index_id: int) -> dict:
-        return self._request("POST", "/api/index/prepare", json={"file_path": file_path, "index_id": index_id})
+    def prepare_document(self, file_path: str, index_id: int, descriptions: Optional[dict] = None) -> dict:
+        body = {"file_path": file_path, "index_id": index_id}
+        if descriptions is not None:
+            body["descriptions"] = descriptions
+        return self._request("POST", "/api/index/prepare", json=body)
+
+    def visual(self, file_path: str, visual_id: str) -> str:
+        """A page or image of a document as base64 PNG, for the vision model."""
+        return self._request("GET", "/api/index/visual", params={"file_path": file_path, "id": visual_id})["image"]
 
     def prune_index(self, index_id: int, keep: list) -> dict:
         return self._request("POST", f"/api/indexes/{index_id}/prune", json={"keep": keep})

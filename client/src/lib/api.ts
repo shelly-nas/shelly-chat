@@ -100,13 +100,25 @@ export const api = {
     request<{ documents: { file_path: string; content_hash: string }[] }>("/api/index/documents", {
       headers: bearer(token),
     }).then((r) => r.documents),
-  prepareDocument: (token: string, filePath: string, indexId: number, signal?: AbortSignal) =>
+  prepareDocument: (
+    token: string,
+    filePath: string,
+    indexId: number,
+    signal?: AbortSignal,
+    descriptions?: Record<string, string>,
+  ) =>
     request<PrepareResult>("/api/index/prepare", {
       method: "POST",
       headers: bearer(token),
-      body: JSON.stringify({ file_path: filePath, index_id: indexId }),
+      body: JSON.stringify({ file_path: filePath, index_id: indexId, ...(descriptions ? { descriptions } : {}) }),
       signal,
     }),
+  /** A page or image of a document as base64 PNG, for the vision model. */
+  visual: (token: string, filePath: string, id: string, signal?: AbortSignal) =>
+    request<{ image: string; label: string }>(
+      `/api/index/visual?file_path=${encodeURIComponent(filePath)}&id=${encodeURIComponent(id)}`,
+      { headers: bearer(token), signal },
+    ),
   putDocument: (token: string, document: object, signal?: AbortSignal) =>
     request<{ chunks: number; abbreviations: number }>("/api/index/documents", {
       method: "PUT",

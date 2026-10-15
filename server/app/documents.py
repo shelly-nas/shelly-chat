@@ -7,32 +7,136 @@ user's machine, where Ollama runs.
 
 No model is involved: HierarchicalNodeParser is a token-counting text
 splitter, with its tokenizer shipped inside llama-index-core.
+
+Tables are read as tables (app/tables.py): PDF tables through pdfplumber's
+table detection, Word tables in document order, Excel sheets and CSV files.
 """
 
+import csv
 import hashlib
+import io
+import logging
 import re
 from pathlib import Path
+
+from app import tables, visuals
 
 from llama_index.core import Document
 from llama_index.core.node_parser import HierarchicalNodeParser, SentenceSplitter, get_leaf_nodes
 from llama_index.core.schema import MetadataMode
 
 
-def extract_text(path: Path) -> str:
-    """The plain text of a Markdown, text, PDF or DOCX file."""
+logger = logging.getLogger(__name__)
+
+
+def extract_text(path: Path, with_visuals: bool = False) -> str:
+    """The text of a document, with headings as Markdown headings and tables as Markdown tables.
+
+    with_visuals: mark PDF pages and Word images that need a description with a
+    placeholder (app/visuals.py), where the description will go.
+    """
     ext = path.suffix.lower()
     if ext in (".md", ".adoc", ".txt"):
         return path.read_text(encoding="utf-8", errors="replace")
     if ext == ".pdf":
+        return _pdf_text(path, with_visuals)
+    if ext in (".docx", ".doc"):
+        return _docx_text(path, with_visuals)
+    if ext == ".xlsx":
+        return _xlsx_text(path)
+    if ext == ".csv":
+        return _csv_text(path)
+    raise ValueError(f"Bestandstype {ext or '(geen)'} wordt niet ondersteund.")
+
+
+def _pdf_text(path: Path, with_visuals: bool = False) -> str:
+    """Text and tables of a PDF in reading order, page by page.
+
+    pdfplumber finds ruled tables; each becomes a Markdown table, and the text
+    above, between and below them is read as text. Falls back to plain
+    pdfminer text if pdfplumber cannot read the file.
+    """
+    try:
+        import pdfplumber
+
+        parts: list[str] = []
+        with pdfplumber.open(str(path)) as pdf:
+            for number, page in enumerate(pdf.pages, start=1):
+                x0, top, x1, bottom = page.bbox
+
+                def text_between(upper: float, lower: float) -> str:
+                    if lower - upper < 1:
+                        return ""
+                    return page.crop((x0, upper, x1, lower)).extract_text() or ""
+
+                cursor = top
+                for table in sorted(page.find_tables(), key=lambda t: t.bbox[1]):
+                    _, t_top, _, t_bottom = table.bbox
+                    t_top, t_bottom = max(t_top, cursor), min(t_bottom, bottom)
+                    if t_bottom <= t_top:
+                        continue
+                    parts.append(text_between(cursor, t_top))
+                    rows = table.extract()
+                    markdown = tables.markdown_table(rows) if len(rows) >= 2 else ""
+                    # A "table" of one row is usually a framed line of text.
+                    parts.append(markdown or text_between(t_top, t_bottom))
+                    cursor = t_bottom
+                parts.append(text_between(cursor, bottom))
+                if with_visuals and visuals.pdf_page_needs_description(page):
+                    parts.append(visuals.placeholder(f"p{number}"))
+        return "\n\n".join(p.strip() for p in parts if p.strip())
+    except Exception as exc:  # pdfplumber is stricter than pdfminer on broken files
+        logger.warning("pdfplumber kon %s niet lezen (%s); platte tekst via pdfminer", path, exc)
         from pdfminer.high_level import extract_text as pdf_text
 
         return pdf_text(str(path)) or ""
-    if ext in (".docx", ".doc"):
-        import docx
 
-        # Word headings become Markdown headings, so chunks know their section.
-        return "\n".join(_docx_line(p) for p in docx.Document(str(path)).paragraphs)
-    raise ValueError(f"Bestandstype {ext or '(geen)'} wordt niet ondersteund.")
+
+def _docx_text(path: Path, with_visuals: bool = False) -> str:
+    """Paragraphs and tables in document order; headings and tables as Markdown."""
+    import docx
+    from docx.table import Table
+
+    document = docx.Document(str(path))
+    lines = []
+    image_number = 0  # in the same order as visuals.docx_images, which renders them
+    for block in document.iter_inner_content():
+        if isinstance(block, Table):
+            rows = [[cell.text for cell in row.cells] for row in block.rows]
+            lines += ["", tables.markdown_table(rows), ""]
+        else:
+            lines.append(_docx_line(block))
+            if with_visuals:
+                for _ in visuals.paragraph_images(document, block):
+                    image_number += 1
+                    lines.append(visuals.placeholder(f"w{image_number}"))
+    return "\n".join(lines)
+
+
+def _xlsx_text(path: Path) -> str:
+    """Every sheet as a heading with its cells as a Markdown table (values, not formulas)."""
+    import openpyxl
+
+    workbook = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+    try:
+        parts = []
+        for sheet in workbook.worksheets:
+            table = tables.markdown_table([list(row) for row in sheet.iter_rows(values_only=True)])
+            if table:
+                parts.append(f"# {sheet.title}\n\n{table}")
+        return "\n\n".join(parts)
+    finally:
+        workbook.close()
+
+
+def _csv_text(path: Path) -> str:
+    """A CSV file as a Markdown table; the delimiter (, ; or tab) is detected."""
+    raw = path.read_text(encoding="utf-8-sig", errors="replace")
+    try:
+        dialect = csv.Sniffer().sniff(raw[:20_000], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    return tables.markdown_table(list(csv.reader(io.StringIO(raw), dialect)))
 
 
 def _docx_line(paragraph) -> str:
@@ -49,7 +153,7 @@ def _docx_line(paragraph) -> str:
 # Bump when split() changes what it stores or embeds: every document then
 # counts as changed and is split and embedded again on the next run, without
 # emptying the indexes first.
-SPLIT_VERSION = "2"
+SPLIT_VERSION = "3"
 
 
 def content_hash(text: str) -> str:
@@ -76,6 +180,8 @@ def section_at(heads: list[tuple[int, int, str]], position: int) -> str:
 
 def split(text: str, metadata: dict, hash_: str, chunks: dict) -> list[dict]:
     """Hierarchical chunks; leaves carry the text the embedding is made of."""
+    # Large tables become pieces that fit a small chunk, each with its header.
+    text = tables.keep_tables_whole(text, chunks["child_chunk_size"])
     doc = Document(text=text, metadata={**metadata, "content_hash": hash_})
     # The hash identifies the document version; it must not end up in what
     # gets embedded or shown to the model.

@@ -64,7 +64,10 @@ Chunkgroottes, de maximale bestandsgrootte en de zoek- en antwoordinstellingen s
 context per bron, maar ook meer ruis. Kleinere leaves zoeken preciezer. De merge-drempel bepaalt vanaf welk
 deel van de gevonden leaves de hele parent wordt meegegeven.
 
-Ondersteunde bestanden: `.md`, `.adoc`, `.txt`, `.pdf`, `.docx` en `.doc` (best-effort). Bronnen zijn
+Staat onder Instellingen → Indexeren een vision-model, dan laat de CLI net als de app afbeeldingen en tekeningen
+beschrijven door dat model in Ollama.
+
+Ondersteunde bestanden: `.md`, `.adoc`, `.txt`, `.pdf`, `.docx`, `.doc` (best-effort), `.xlsx` en `.csv`. Bronnen zijn
 absolute paden op de NAS, zoals `/home/Jelle/Documenten` (zie de README in de root).
 
 ## Een vraag stellen vanuit de terminal

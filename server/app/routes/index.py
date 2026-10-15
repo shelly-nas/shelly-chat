@@ -19,11 +19,11 @@ sees half a document and an interrupted run simply resumes on the next one.
 import hmac
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from app import abbreviations, config, db, documents, files, runlock, settings
+from app import abbreviations, config, db, documents, files, runlock, settings, visuals
 
 router = APIRouter(prefix="/api/index")
 
@@ -69,6 +69,8 @@ def index_settings():
         "chunk_config": settings.chunk_config(values),
         # The model the next run embeds with; meta has the one the store was built with.
         "embed_model": values["embed_model"],
+        # Describing images while indexing; model "" is off (see app/visuals.py).
+        "vision": {"model": values["vision_model"], "prompt": visuals.PROMPT},
         "documents_dir": config.DOCUMENTS_DIR,
         "documents_root_exists": files.root().is_dir(),
     }
@@ -178,6 +180,9 @@ class PrepareRequest(BaseModel):
     file_path: str = Field(min_length=1)
     # The index being indexed: an unchanged document joins it right away.
     index_id: int | None = None
+    # Second round for a document with images: {visual id: description} from
+    # the vision model (see status "describe"). Missing ones are left out.
+    descriptions: dict[str, str] | None = None
 
 
 def add_to_index(conn, index_id: int | None, document_id: int) -> None:
@@ -207,14 +212,19 @@ def prepare_document(request: PrepareRequest):
             status_code=413,
             detail=f"{file_path}: {size_mb:.0f} MB, groter dan de grens van {values['max_file_mb']} MB.",
         )
+    vision_model = values["vision_model"]
     try:
-        text = documents.extract_text(path)
+        text = documents.extract_text(path, with_visuals=bool(vision_model))
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"{file_path}: {exc}")
-    if not text.strip():
+    # Images to describe, at most vision_max_images; the rest is left out.
+    wanted = visuals.ids(text)[: values["vision_max_images"]]
+    if not visuals.fill(text, None).strip() and not wanted:
         return {"file_path": file_path, "status": "empty"}
 
-    hash_ = documents.content_hash(text)
+    # With images, the vision model is part of what the document becomes:
+    # another model means describing (and so indexing) it again.
+    hash_ = documents.content_hash(text + (f"\nvision:{vision_model}" if wanted else ""))
     with db.connection() as conn:
         stored = conn.execute(
             "SELECT id, content_hash FROM documents WHERE file_path = %s", (file_path,)
@@ -223,6 +233,18 @@ def prepare_document(request: PrepareRequest):
             # Already split and embedded, perhaps for another index.
             add_to_index(conn, request.index_id, stored["id"])
             return {"file_path": file_path, "status": "unchanged", "content_hash": hash_}
+
+    if wanted and request.descriptions is None:
+        # First round: the indexer has the vision model describe these, then asks again.
+        return {
+            "file_path": file_path,
+            "status": "describe",
+            "content_hash": hash_,
+            "visuals": [{"id": v, "label": visuals.label(v)} for v in wanted],
+        }
+    text = visuals.fill(text, request.descriptions, keep=set(wanted))
+    if not text.strip():
+        return {"file_path": file_path, "status": "empty"}
 
     file_name = path.name
     # The app opens the original through GET /api/files/<path>.
@@ -247,6 +269,16 @@ def prepare_document(request: PrepareRequest):
             "nodes": nodes,
         },
     }
+
+
+@router.get("/visual", dependencies=[Depends(require_token)])
+def visual(file_path: str, id: str = Query(pattern=r"^[pw]\d{1,5}$")):
+    """A page or image of a document as base64 PNG, for the vision model to describe."""
+    try:
+        path = files.resolve(file_path)
+        return {"image": visuals.render(path, id), "label": visuals.label(id)}
+    except (files.PathError, KeyError, FileNotFoundError):
+        raise HTTPException(status_code=404, detail=f"{file_path}: {id} niet gevonden.")
 
 
 class Node(BaseModel):

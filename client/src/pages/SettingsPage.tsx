@@ -48,6 +48,8 @@ interface Field {
   text?: boolean;
   /** Pick one of the models installed in Ollama (or keep the current one). */
   ollamaModel?: boolean;
+  /** May be empty: "Uit". */
+  optional?: boolean;
   /** On/off, shown as a switch. */
   toggle?: boolean;
   integer?: boolean;
@@ -166,6 +168,22 @@ const FIELDS: Record<Key, Field> = {
     max: 10000,
     unit: "tokens",
   },
+  vision_model: {
+    label: "Afbeeldingen beschrijven",
+    help:
+      "Een vision-model in Ollama (zoals qwen2.5vl of gemma3) beschrijft pagina's met tekeningen of plaatjes en " +
+      "afbeeldingen in Word, zodat ook die vindbaar zijn. Traag: per afbeelding tien seconden tot een minuut. " +
+      "Maten en details leest het niet altijd betrouwbaar af.",
+    ollamaModel: true,
+    optional: true,
+  },
+  vision_max_images: {
+    label: "Maximaal aantal afbeeldingen per document",
+    help: "Meer afbeeldingen in een document worden overgeslagen.",
+    integer: true,
+    min: 1,
+    max: 1000,
+  },
   max_file_mb: { label: "Maximale bestandsgrootte", help: "Grotere bestanden worden niet geïndexeerd.", integer: true, min: 1, max: 10000, unit: "MB" },
 };
 
@@ -194,6 +212,7 @@ const INDEX_GROUPS: { title: string; keys: Key[] }[] = [
   { title: "Embedding", keys: ["embed_model"] },
   { title: "Chunks", keys: CHUNK_KEYS },
   { title: "Bestanden", keys: ["max_file_mb"] },
+  { title: "Afbeeldingen en tekeningen", keys: ["vision_model", "vision_max_images"] },
 ];
 
 type Draft = Partial<Record<Key, string>>;
@@ -202,6 +221,7 @@ type Draft = Partial<Record<Key, string>>;
 function parse(key: Key, raw: string): { value: Value } | { error: string } {
   const f = FIELDS[key];
   if (f.toggle) return { value: raw === "true" };
+  if (f.optional && !raw.trim()) return { value: "" };
   if (f.text || f.ollamaModel) return raw.trim() ? { value: raw.trim() } : { error: "Mag niet leeg zijn." };
   const n = Number(raw.replace(",", "."));
   if (raw.trim() === "" || Number.isNaN(n)) return { error: "Vul een getal in." };
@@ -475,9 +495,11 @@ function SharedSection(props: {
           <Select
             labelId={`setting-${k}`}
             value={current}
+            displayEmpty={f.optional}
             sx={{ height: 40, "& .MuiSelect-select": { display: "flex", alignItems: "center", height: "100%", py: 0 } }}
             onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
           >
+            {f.optional && <MenuItem value="">Uit</MenuItem>}
             {names.map((name) => (
               <MenuItem key={name} value={name}>
                 {name}
@@ -486,7 +508,7 @@ function SharedSection(props: {
             ))}
           </Select>
           <FormHelperText>
-            {f.help} Standaard: {show(data.defaults[k])}. Staat het model er niet tussen, installeer het dan met ollama pull.
+            {f.help} Standaard: {show(data.defaults[k]) || "uit"}. Staat het model er niet tussen, installeer het dan met ollama pull.
           </FormHelperText>
         </FormControl>
       );

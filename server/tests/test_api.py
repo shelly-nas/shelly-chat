@@ -378,3 +378,39 @@ def test_query_prefix_for_the_embedding_model():
 
     assert query_prefix("qwen3-embedding:4b").startswith("Instruct: ") and query_prefix("qwen3-embedding").endswith("Query: ")
     assert query_prefix("bge-m3") == "" and query_prefix(None) == ""
+
+
+def test_images_are_described_by_the_vision_model(client, docs_root):
+    """A drawing page asks for a description first; the description is then indexed like text."""
+    import base64
+    import shutil
+    from pathlib import Path
+
+    shutil.copy(Path(__file__).parent / "fixtures" / "tekening.pdf", docs_root / "tekening.pdf")
+    try:
+        # Off by default: the drawing page is just its text.
+        assert client.post("/api/index/prepare", json={"file_path": "tekening.pdf"}, headers=AUTH).json()["status"] == "new"
+
+        client.put("/api/settings", json={"vision_model": "qwen2.5vl"}, headers=AUTH)
+        settings = client.get("/api/index/settings").json()
+        assert settings["vision"]["model"] == "qwen2.5vl" and "titelblok" in settings["vision"]["prompt"]
+
+        first = client.post("/api/index/prepare", json={"file_path": "tekening.pdf"}, headers=AUTH).json()
+        assert first["status"] == "describe" and first["visuals"] == [{"id": "p2", "label": "pagina 2"}]
+        image = client.get("/api/index/visual", params={"file_path": "tekening.pdf", "id": "p2"}, headers=AUTH)
+        assert image.status_code == 200 and base64.b64decode(image.json()["image"])[:4] == b"\x89PNG"
+        assert client.get("/api/index/visual", params={"file_path": "tekening.pdf", "id": "p9"}, headers=AUTH).status_code == 404
+        assert client.get("/api/index/visual", params={"file_path": "tekening.pdf", "id": "p2"}).status_code == 401
+
+        second = client.post(
+            "/api/index/prepare",
+            json={"file_path": "tekening.pdf", "descriptions": {"p2": "Bouwtekening: plattegrond begane grond, BG-01."}},
+            headers=AUTH,
+        ).json()
+        text = second["document"]["content"]
+        assert "Beschrijving van pagina 2:\nBouwtekening: plattegrond begane grond, BG-01." in text
+        assert "[[afbeelding" not in text
+        assert any("BG-01" in (n["embed_text"] or "") for n in second["document"]["nodes"])
+    finally:
+        client.put("/api/settings", json={"vision_model": None}, headers=AUTH)
+        (docs_root / "tekening.pdf").unlink()

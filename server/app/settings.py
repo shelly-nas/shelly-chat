@@ -18,6 +18,8 @@ class Setting:
     min: float | None = None
     max: float | None = None
     max_length: int = 20_000
+    # A text setting that may be empty (meaning: off).
+    allow_empty: bool = False
 
 
 # The settings, by key. Groups match the sections of the Settings screen.
@@ -45,6 +47,9 @@ SETTINGS: dict[str, Setting] = {
     "child_chunk_size": Setting(int, config.CHILD_CHUNK_SIZE, 50, 20_000),
     "parent_chunk_overlap": Setting(int, config.PARENT_CHUNK_OVERLAP, 0, 10_000),
     "max_file_mb": Setting(int, config.MAX_FILE_MB, 1, 10_000),
+    # Describing images: a change only re-indexes documents that have images.
+    "vision_model": Setting(str, config.VISION_MODEL, max_length=200, allow_empty=True),
+    "vision_max_images": Setting(int, config.VISION_MAX_IMAGES, 1, 1_000),
 }
 
 
@@ -61,7 +66,7 @@ def validate(key: str, value: object) -> object:
         if not isinstance(value, str):
             raise InvalidSetting(f"{key} moet tekst zijn.")
         value = value.replace("\r\n", "\n").strip()
-        if not value:
+        if not value and not setting.allow_empty:
             raise InvalidSetting(f"{key} mag niet leeg zijn.")
         if len(value) > setting.max_length:
             raise InvalidSetting(f"{key} is langer dan {setting.max_length} tekens.")

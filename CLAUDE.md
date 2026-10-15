@@ -52,7 +52,11 @@ Vraagflow: `POST /api/expand` → Ollama `/api/embed` (model van de index, `GET 
 Zoeken (`server/app/retrieval.py`): cosine op de leaves én trefwoorden (`chunks.tsv`, Nederlands + Engels), samengevoegd
 met reciprocal rank fusion; dan minimale en relatieve relevantie, auto-merge (beste leaf + bonus) en MMR voor de top-N.
 De vraag krijgt bij het embedden een modelafhankelijk voorvoegsel (`query_prefix` uit `/api/config`, `app/embedding.py`).
-Elke chunk krijgt zijn kopjespad in `metadata.section_context`. Verander je wat `documents.split` opslaat of embedt,
+Elke chunk krijgt zijn kopjespad in `metadata.section_context`. Tabellen (PDF via pdfplumber, Word, Excel, CSV) worden
+Markdown-tabellen (`app/tables.py`); `keep_tables_whole` knipt grote tabellen in stukken met de kopregel herhaald.
+Afbeeldingen (`app/visuals.py`): met een `vision_model` zet de NAS plaatsaanduidingen voor tekening-pagina's en
+Word-afbeeldingen; prepare geeft dan status `describe`, de indexer haalt `GET /api/index/visual` op, laat Ollama
+beschrijven en roept prepare opnieuw aan met `descriptions`. Browser (`indexer.ts`) en CLI (`indexer.py`) doen dit allebei. Verander je wat `documents.split` opslaat of embedt,
 verhoog dan `SPLIT_VERSION`: alle documenten worden dan bij de volgende run opnieuw geknipt en geëmbed.
 Het taalmodel blijft na een antwoord geladen (`keep_alive` 10m, `LLM_KEEP_ALIVE` in `ollama.ts`); alleen het
 embeddingmodel wordt direct ontladen. Elk antwoord bewaart waar de tijd in ging (`messages.timings`: zoeken,

@@ -1,4 +1,4 @@
-"""Embeddings from the local Ollama (/api/embed)."""
+"""Embeddings from the local Ollama (/api/embed), and image descriptions (/api/chat)."""
 
 from typing import List
 
@@ -41,3 +41,26 @@ class OllamaEmbedder:
             json={"model": self.model, "prompt": "", "keep_alive": 0},
             timeout=30,
         )
+
+
+def describe_image(base_url: str, model: str, prompt: str, image: str, timeout: int = 600) -> str:
+    """Have a vision model describe one image (base64 PNG)."""
+    base_url = base_url.rstrip("/")
+    resp = requests.post(
+        f"{base_url}/api/chat",
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt, "images": [image]}],
+            "stream": False,
+            "think": False,
+            "options": {"temperature": 0},
+        },
+        timeout=timeout,
+    )
+    if not resp.ok:
+        raise RuntimeError(f"Ollama {model} kon de afbeelding niet beschrijven ({resp.status_code}): {resp.text[:300]}")
+    return (resp.json().get("message", {}).get("content") or "").strip()
+
+
+def unload_model(base_url: str, model: str) -> None:
+    requests.post(f"{base_url.rstrip('/')}/api/generate", json={"model": model, "prompt": "", "keep_alive": 0}, timeout=30)
